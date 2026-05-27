@@ -15,4 +15,4 @@ An AI-powered Energy Management System (EMS) that collects real-time energy data
 ## Future Goals
 - Automatic load balancing
 - Smart grid integration
-- Renewable energy optimization
+- Renewable energy optimization and 
