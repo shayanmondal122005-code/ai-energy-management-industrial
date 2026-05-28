@@ -8,3 +8,5 @@ pvlib
 requests
 joblib
 matplotlib
+xgboost
+scikit-learn
