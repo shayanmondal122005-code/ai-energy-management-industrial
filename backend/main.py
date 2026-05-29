@@ -1,6 +1,11 @@
 # ADD THESE to backend/main.py
 # New solar health features from Sunil's insights
+from fastapi import FastAPI
+import pandas as pd
 
+app = FastAPI()
+
+readings = []
 @app.get("/solar/health")
 def solar_health_check():
     """
