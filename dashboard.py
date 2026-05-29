@@ -1060,7 +1060,47 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════
 # ── LOAD DATA ──
 # ════════════════════════════════════════════════════════
+# ADD this function to dashboard.py
 
+BACKEND_URL = "https://your-app-name.onrender.com"
+# EDIT: replace with your actual Render URL after deploying
+
+@st.cache_data(ttl=300)
+def fetch_backend_data(hours=360):
+    """Fetches data from Render backend. Falls back to synthetic."""
+    try:
+        r = requests.get(
+            f"{BACKEND_URL}/history/csv",
+            params={"hours": hours},
+            timeout=35
+        )
+        if r.status_code == 200:
+            from io import StringIO
+            df = pd.read_csv(
+                StringIO(r.text),
+                parse_dates=['timestamp'],
+                index_col='timestamp'
+            )
+            if len(df) >= 100:
+                return df, "live"
+    except Exception:
+        pass
+    return generate_hospital_data(n_days=180), "synthetic"
+
+
+@st.cache_data(ttl=120)
+def fetch_solar_health():
+    """Fetches solar health alerts from backend."""
+    try:
+        r = requests.get(
+            f"{BACKEND_URL}/solar/health",
+            timeout=35
+        )
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
 data_tag = "demo"
 
 if data_mode == "Upload CSV" and uploaded_file is not None:
