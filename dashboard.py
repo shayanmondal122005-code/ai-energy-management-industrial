@@ -1102,7 +1102,7 @@ with st.sidebar:
 # ════════════════════════════════════════════════════════
 # ADD this function to dashboard.py
 
-BACKEND_URL = "https://your-app-name.onrender.com"
+BACKEND_URL = "https://ai-energy-managementat12.onrender.com"
 # EDIT: replace with your actual Render URL after deploying
 
 @st.cache_data(ttl=300)
