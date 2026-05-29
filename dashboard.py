@@ -595,7 +595,47 @@ def generate_forecast(model, df_raw, err_by_hour,
 # ════════════════════════════════════════════════════════
 # BRAIN — DECISIONS & ALERTS
 # ════════════════════════════════════════════════════════
+# ADD this block after your existing brain alerts section
 
+health = fetch_solar_health()
+if health and health.get('alerts'):
+    st.markdown(
+        '<div class="section-label">Solar Health Alerts</div>',
+        unsafe_allow_html=True
+    )
+    for alert in health['alerts']:
+        severity = alert.get('severity', 'INFO')
+        css = {
+            'CRITICAL': 'alert-critical',
+            'WARNING' : 'alert-warning',
+            'INFO'    : 'alert-info',
+        }.get(severity, 'alert-info')
+        st.markdown(
+            f'<div class="{css}">'
+            f'<strong>{alert["type"].replace("_"," ")}</strong> — '
+            f'{alert["message"]}<br>'
+            f'<small>Action: {alert["action"]}</small>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+# Simulate button in sidebar
+if st.sidebar.button("⚡ Simulate next reading"):
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/simulate/tick",
+            timeout=35
+        )
+        if r.status_code == 200:
+            data = r.json().get('reading', {})
+            st.sidebar.success(
+                f"Reading added\n"
+                f"Load: {data.get('load_kw')}kW | "
+                f"SoC: {data.get('battery_soc')}%"
+            )
+            st.cache_data.clear()
+    except Exception as e:
+        st.sidebar.error(f"Backend offline: {e}")
 def run_brain(fc_df, soc_trace, current_soc,
               current_load, current_solar,
               current_hour, tariff):
