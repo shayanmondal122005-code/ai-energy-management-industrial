@@ -355,7 +355,7 @@ FEATURES = [
 # ════════════════════════════════════════════════════════
 # EDIT: replace with your actual Render URL after deploying
 
-BACKEND_URL = "https://ai-energy-managementat12.onrender.com/"
+BACKEND_URL = "https://ai-energy-managementat12.onrender.com"
 
 
 # ════════════════════════════════════════════════════════
