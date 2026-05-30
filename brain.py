@@ -20,12 +20,9 @@ RULES = {
     'precharge_threshold': 60,   # % — pre-charge battery to this level before peak
 }
 
-
 class MicrogridBrain:
     """
-    The central decision-making engine.
-    Runs every 15 minutes in production.
-    
+    The central decision-making engine. Runs every 15 minutes in production.
     It watches 5 things:
     1. Current SoC
     2. Forecast load (next 24h)
@@ -39,18 +36,15 @@ class MicrogridBrain:
     C. ALERT   — send notification to facility manager
     D. HOLD    — do nothing, system is fine
     """
-    
     def __init__(self, battery: BatteryTracker, rules=RULES):
         self.battery  = battery
         self.rules    = rules
         self.alerts   = []
         self.decisions= []
-    
-    def run(self, current_hour, current_load_kw, current_solar_kw,
-            forecast_load, forecast_solar, temp_c=30):
+
+    def run(self, current_hour, current_load_kw, current_solar_kw, forecast_load, forecast_solar, temp_c=30):
         """
         Main brain loop — call this every 15 minutes.
-        
         Args:
             current_hour   : int 0-23, current hour of day
             current_load_kw: float, current electricity demand
@@ -58,8 +52,8 @@ class MicrogridBrain:
             forecast_load  : list of 24 hourly load forecasts (kW)
             forecast_solar : list of 24 hourly solar forecasts (kW)
             temp_c         : current temperature
-        
-        Returns: dict with decision + reasoning + alerts
+        Returns:
+            dict with decision + reasoning + alerts
         """
         # Step 1: update battery with current real data
         current_soc = self.battery.update(
@@ -79,92 +73,85 @@ class MicrogridBrain:
         hours_left   = self.battery.hours_remaining(current_load_kw, current_solar_kw)
         min_future_soc = min(future_soc)
         when_lowest  = future_soc.index(min_future_soc)
+        
         is_cheap_now = current_hour in self.rules['tod_cheap_hours']
         is_peak_now  = current_hour in self.rules['tod_peak_hours']
-        peak_coming  = any(h in self.rules['tod_peak_hours'] 
-                          for h in range(current_hour, current_hour + 4))
+        
+        # Check if peak hours are approaching in the next 4 hours
+        peak_coming  = any(h % 24 in self.rules['tod_peak_hours'] for h in range(current_hour, current_hour + 4))
         
         alerts  = []
         actions = []
+
+        # ── SYSTEM HEALTH & EMERGENCY RULES ──
         
-        # ── RULE 1: Emergency — battery critically low right now ──
+        # RULE 1: Emergency — battery critically low right now
         if current_soc < self.rules['soc_critical']:
             alerts.append({
-                'severity': 'CRITICAL',
-                'message' : f"Battery at {current_soc:.0f}% — CRITICAL. "
-                           f"Grid import required immediately to prevent shutdown.",
+                'severity': 'CRITICAL', 
+                'message' : f"Battery at {current_soc:.0f}% — CRITICAL. Grid import required immediately to prevent shutdown.", 
                 'action'  : 'CHARGE_NOW'
             })
             actions.append('EMERGENCY_CHARGE')
-        
-        # ── RULE 2: Battery will get critically low in next 24h ──
+            
+        # RULE 2: Battery will get critically low in next 24h
         elif min_future_soc < self.rules['soc_critical']:
             alerts.append({
-                'severity': 'WARNING',
-                'message' : f"Battery forecast to reach {min_future_soc:.0f}% "
-                           f"in {when_lowest} hours. Consider grid charging now.",
+                'severity': 'WARNING', 
+                'message' : f"Battery forecast to reach {min_future_soc:.0f}% in {when_lowest} hours. Consider grid charging now.", 
                 'action'  : 'PLAN_CHARGE'
             })
+
+        # ── TARIFF & ECONOMIC MANAGEMENT RULES ──
+        # Fixed: Evaluated independently so rules don't block each other
         
-        # ── RULE 3: Cheap tariff hours — charge battery if below target ──
-        if (is_cheap_now 
-                and current_soc < self.rules['precharge_threshold']
-                and not is_peak_now):
+        # RULE 3: Cheap tariff hours — charge battery if below target
+        if is_cheap_now and current_soc < self.rules['precharge_threshold'] and not is_peak_now:
             actions.append('CHARGE_FROM_GRID')
             alerts.append({
-                'severity': 'INFO',
-                'message' : f"Off-peak rate active. Charging battery from "
-                           f"{current_soc:.0f}% to "
-                           f"{self.rules['precharge_threshold']}% now. "
-                           f"Saves cost vs peak-hour import.",
+                'severity': 'INFO', 
+                'message' : f"Off-peak rate active. Charging battery from {current_soc:.0f}% to {self.rules['precharge_threshold']}% now. Saves cost vs peak-hour import.", 
                 'action'  : 'CHARGING'
             })
-        
-        # ── RULE 4: Peak hours approaching — pre-charge if not ready ──
-        elif (peak_coming 
-              and current_soc < self.rules['precharge_threshold']
-              and is_cheap_now):
+            
+        # RULE 4: Peak hours approaching — pre-charge if not ready
+        if peak_coming and current_soc < self.rules['precharge_threshold'] and is_cheap_now and not is_peak_now:
+            # Fixed: Safely compute remaining hours even across day boundaries
+            hours_until_peak = (self.rules['tod_peak_hours'][0] - current_hour) % 24
             actions.append('PRECHARGE_FOR_PEAK')
             alerts.append({
-                'severity': 'INFO',
-                'message' : f"Evening peak in {self.rules['tod_peak_hours'][0]-current_hour}h. "
-                           f"Pre-charging battery to {self.rules['precharge_threshold']}% "
-                           f"at cheap rate now.",
+                'severity': 'INFO', 
+                'message' : f"Evening peak in {hours_until_peak}h. Pre-charging battery to {self.rules['precharge_threshold']}% at cheap rate now.", 
                 'action'  : 'PRECHARGING'
             })
-        
-        # ── RULE 5: During peak hours — discharge battery to avoid grid peak ──
-        elif (is_peak_now 
-              and current_soc > self.rules['soc_critical'] + 10):
+            
+        # RULE 5: During peak hours — discharge battery to avoid grid peak
+        if is_peak_now and current_soc > (self.rules['soc_critical'] + 10):
             actions.append('DISCHARGE_TO_SHAVE_PEAK')
             alerts.append({
-                'severity': 'INFO',
-                'message' : f"Peak tariff active. Discharging battery to cover "
-                           f"{current_load_kw:.0f}kW load. Avoiding grid import.",
+                'severity': 'INFO', 
+                'message' : f"Peak tariff active. Discharging battery to cover {current_load_kw:.0f}kW load. Avoiding grid import.", 
                 'action'  : 'DISCHARGING'
             })
-        
+
         # ── RULE 6: High demand — about to trigger demand charge ──
         if current_load_kw > self.rules['peak_demand_kw']:
             shave_needed = current_load_kw - self.rules['peak_demand_kw']
-            if current_soc > self.rules['soc_critical'] + 5:
+            if current_soc > (self.rules['soc_critical'] + 5):
                 actions.append('DEMAND_SHAVE')
                 alerts.append({
-                    'severity': 'WARNING',
-                    'message' : f"Demand at {current_load_kw:.0f}kW — "
-                               f"above {self.rules['peak_demand_kw']}kW threshold. "
-                               f"Discharging {shave_needed:.0f}kW from battery "
-                               f"to prevent demand charge spike.",
+                    'severity': 'WARNING', 
+                    'message' : f"Demand at {current_load_kw:.0f}kW — above {self.rules['peak_demand_kw']}kW threshold. Discharging {shave_needed:.0f}kW from battery to prevent demand charge spike.", 
                     'action'  : 'SHAVING'
                 })
-        
+
         # ── Default: system stable, no action needed ──
         if not actions:
             actions.append('HOLD')
-        
+
         # Package the full decision
         decision = {
-            'timestamp'      : pd.Timestamp.now(),
+            'timestamp'      : pd.Timestamp.now(), # Note: Ensure host machine timezone is aligned
             'current_soc_pct': round(current_soc, 1),
             'hours_remaining': hours_left,
             'min_future_soc' : round(min_future_soc, 1),
@@ -179,7 +166,7 @@ class MicrogridBrain:
         
         self.decisions.append(decision)
         return decision
-    
+
     def print_status(self, decision):
         """Pretty print current system status — for terminal testing"""
         print("\n" + "="*50)
@@ -195,3 +182,4 @@ class MicrogridBrain:
             icon = '🔴' if a['severity']=='CRITICAL' else '🟡' if a['severity']=='WARNING' else '🔵'
             print(f"  {icon} [{a['severity']}] {a['message']}")
         print("="*50)
+        
