@@ -1,5 +1,5 @@
 
-  from datetime import datetime, timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 import math
 import random
@@ -14,6 +14,47 @@ app = FastAPI()
 
 # In-memory storage
 readings = []
+
+
+def build_simulated_reading(ts, last_soc=68.0):
+    hour = ts.hour
+    month = ts.month
+    load_factor = 1.35 if 8 <= hour <= 11 else 1.25 if 18 <= hour <= 22 else 0.75 if hour <= 5 else 1.0
+    load_kw = max(80.0, min(600.0, 300.0 * load_factor + random.uniform(-20, 20)))
+
+    if 6 <= hour <= 18:
+        solar_angle = math.sin((hour - 6) * math.pi / 12)
+        cloud_factor = 0.45 if month in [6, 7, 8, 9] else 0.85
+        solar_kw = max(0.0, 200.0 * solar_angle * cloud_factor + random.uniform(-8, 8))
+    else:
+        solar_kw = 0.0
+
+    net_kw = solar_kw - load_kw
+    soc_change = net_kw / 500.0 * 100.0 * 0.25
+    battery_soc = max(10.0, min(95.0, last_soc + soc_change))
+
+    return {
+        "timestamp": ts.isoformat(),
+        "load_kw": round(load_kw, 2),
+        "solar_kw": round(solar_kw, 2),
+        "battery_soc": round(battery_soc, 2),
+        "battery_temp": round(28.0 + random.uniform(-2, 4), 2),
+        "temp_c": round(28.0 + random.uniform(-2, 4), 2),
+    }
+
+
+def seed_demo_history(days=12):
+    readings.clear()
+    ts = datetime.now() - timedelta(days=days)
+    last_soc = 68.0
+
+    for _ in range(days * 24 * 4):
+        reading = build_simulated_reading(ts, last_soc)
+        readings.append(reading)
+        last_soc = reading["battery_soc"]
+        ts += timedelta(minutes=15)
+
+    return readings[-1] if readings else None
 
 
 @app.get("/")
@@ -119,6 +160,15 @@ def history_csv(hours: int = 600):
 
 @app.post("/simulate/tick")
 def simulate_tick():
+    if not readings:
+        reading = seed_demo_history(days=12)
+        return {
+            "status": "seeded",
+            "records": len(readings),
+            "reading": reading,
+            "note": "Generated 12 days of 15-minute demo history for dashboard live mode.",
+        }
+
     if readings:
         last_ts = pd.to_datetime(readings[-1].get("timestamp"), errors="coerce")
         if pd.isna(last_ts):
@@ -130,36 +180,23 @@ def simulate_tick():
         ts = datetime.now() - timedelta(days=10)
         last_soc = 68.0
 
-    hour = ts.hour
-    month = ts.month
-    load_factor = 1.35 if 8 <= hour <= 11 else 1.25 if 18 <= hour <= 22 else 0.75 if hour <= 5 else 1.0
-    load_kw = max(80.0, min(600.0, 300.0 * load_factor + random.uniform(-20, 20)))
-
-    if 6 <= hour <= 18:
-        solar_angle = math.sin((hour - 6) * math.pi / 12)
-        cloud_factor = 0.45 if month in [6, 7, 8, 9] else 0.85
-        solar_kw = max(0.0, 200.0 * solar_angle * cloud_factor + random.uniform(-8, 8))
-    else:
-        solar_kw = 0.0
-
-    net_kw = solar_kw - load_kw
-    soc_change = net_kw / 500.0 * 100.0 * 0.25
-    battery_soc = max(10.0, min(95.0, last_soc + soc_change))
-
-    reading = {
-        "timestamp": ts.isoformat(),
-        "load_kw": round(load_kw, 2),
-        "solar_kw": round(solar_kw, 2),
-        "battery_soc": round(battery_soc, 2),
-        "battery_temp": round(28.0 + random.uniform(-2, 4), 2),
-        "temp_c": round(28.0 + random.uniform(-2, 4), 2),
-    }
+    reading = build_simulated_reading(ts, last_soc)
     readings.append(reading)
 
     if len(readings) > 10000:
         del readings[:2000]
 
     return {"status": "simulated", "records": len(readings), "reading": reading}
+
+
+@app.post("/simulate/seed")
+def simulate_seed(days: int = 12):
+    reading = seed_demo_history(days=max(10, days))
+    return {
+        "status": "seeded",
+        "records": len(readings),
+        "reading": reading,
+    }
 
 
 @app.get("/solar/health")
