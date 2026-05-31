@@ -1,4 +1,3 @@
-
 from datetime import datetime, timedelta
 from io import StringIO
 import math
@@ -197,6 +196,11 @@ def simulate_seed(days: int = 12):
         "records": len(readings),
         "reading": reading,
     }
+
+
+@app.get("/simulate/seed")
+def simulate_seed_get(days: int = 12):
+    return simulate_seed(days)
 
 
 @app.get("/solar/health")
