@@ -1,44 +1,64 @@
-from datetime import datetime
 
-from fastapi import FastAPI
-import pandas as pd
-import requests
+    for col in ["load_kw", "solar_kw", "temp_c"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    hourly = (
+        df.set_index("timestamp")[["load_kw", "solar_kw", "temp_c"]]
+        .resample("1h")
+        .mean()
+        .dropna(subset=["load_kw"])
+        .tail(hours)
+        .reset_index()
+    )
+
+    output = StringIO()
+    hourly.to_csv(output, index=False)
+    return Response(output.getvalue(), media_type="text/csv")
 
 
-app = FastAPI()
+@app.post("/simulate/tick")
+def simulate_tick():
+    if readings:
+        last_ts = pd.to_datetime(readings[-1].get("timestamp"), errors="coerce")
+        if pd.isna(last_ts):
+            ts = datetime.now()
+        else:
+            ts = last_ts.to_pydatetime() + timedelta(minutes=15)
+        last_soc = float(readings[-1].get("battery_soc", 68.0))
+    else:
+        ts = datetime.now() - timedelta(days=10)
+        last_soc = 68.0
 
-# In-memory storage
-readings = []
+    hour = ts.hour
+    month = ts.month
+    load_factor = 1.35 if 8 <= hour <= 11 else 1.25 if 18 <= hour <= 22 else 0.75 if hour <= 5 else 1.0
+    load_kw = max(80.0, min(600.0, 300.0 * load_factor + random.uniform(-20, 20)))
 
+    if 6 <= hour <= 18:
+        solar_angle = math.sin((hour - 6) * math.pi / 12)
+        cloud_factor = 0.45 if month in [6, 7, 8, 9] else 0.85
+        solar_kw = max(0.0, 200.0 * solar_angle * cloud_factor + random.uniform(-8, 8))
+    else:
+        solar_kw = 0.0
 
-@app.get("/")
-def root():
-    return {"status": "running", "service": "MicroGrid AI Backend"}
+    net_kw = solar_kw - load_kw
+    soc_change = net_kw / 500.0 * 100.0 * 0.25
+    battery_soc = max(10.0, min(95.0, last_soc + soc_change))
 
+    reading = {
+        "timestamp": ts.isoformat(),
+        "load_kw": round(load_kw, 2),
+        "solar_kw": round(solar_kw, 2),
+        "battery_soc": round(battery_soc, 2),
+        "battery_temp": round(28.0 + random.uniform(-2, 4), 2),
+        "temp_c": round(28.0 + random.uniform(-2, 4), 2),
+    }
+    readings.append(reading)
 
-@app.post("/ingest")
-def ingest(payload: dict):
-    """
-    Receives feeder data every 15 minutes.
-    """
-    required_fields = ["timestamp", "load_kw", "solar_kw", "battery_soc"]
-    missing = [field for field in required_fields if field not in payload]
-
-    if missing:
-        return {"status": "error", "missing_fields": missing}
-
-    readings.append(payload)
-
-    # Prevent unlimited memory growth.
     if len(readings) > 10000:
         del readings[:2000]
 
-    return {"status": "received", "records": len(readings)}
-
-
-@app.get("/data/count")
-def data_count():
-    return {"records": len(readings)}
+    return {"status": "simulated", "records": len(readings), "reading": reading}
 
 
 @app.get("/solar/health")
