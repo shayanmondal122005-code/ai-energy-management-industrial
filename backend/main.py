@@ -1,4 +1,105 @@
 
+  from datetime import datetime, timedelta
+from io import StringIO
+import math
+import random
+
+from fastapi import FastAPI
+from fastapi.responses import Response
+import pandas as pd
+import requests
+
+
+app = FastAPI()
+
+# In-memory storage
+readings = []
+
+
+@app.get("/")
+def root():
+    return {"status": "running", "service": "MicroGrid AI Backend"}
+
+
+@app.post("/ingest")
+def ingest(payload: dict):
+    """
+    Receives feeder data every 15 minutes.
+    """
+    required_fields = ["timestamp", "load_kw", "solar_kw", "battery_soc"]
+    missing = [field for field in required_fields if field not in payload]
+
+    if missing:
+        return {"status": "error", "missing_fields": missing}
+
+    readings.append(payload)
+
+    # Prevent unlimited memory growth.
+    if len(readings) > 10000:
+        del readings[:2000]
+
+    return {"status": "received", "records": len(readings)}
+
+
+@app.get("/data/count")
+def data_count():
+    return {"records": len(readings)}
+
+
+@app.get("/live")
+def live():
+    if not readings:
+        return {
+            "status": "empty",
+            "timestamp": None,
+            "load_kw": 0.0,
+            "solar_kw": 0.0,
+            "battery_soc": 0.0,
+            "battery_temp": 28.0,
+        }
+
+    latest = readings[-1]
+    return {
+        "status": "ok",
+        "timestamp": latest.get("timestamp"),
+        "load_kw": float(latest.get("load_kw", 0.0)),
+        "solar_kw": float(latest.get("solar_kw", 0.0)),
+        "battery_soc": float(latest.get("battery_soc", 0.0)),
+        "battery_temp": float(latest.get("battery_temp", latest.get("temp_c", 28.0))),
+    }
+
+
+@app.get("/stats")
+def stats():
+    if not readings:
+        return {
+            "avg_load_kw": 0.0,
+            "peak_load_kw": 0.0,
+            "avg_solar_kw": 0.0,
+            "total_readings": 0,
+        }
+
+    df = pd.DataFrame(readings)
+    return {
+        "avg_load_kw": float(pd.to_numeric(df["load_kw"], errors="coerce").mean()),
+        "peak_load_kw": float(pd.to_numeric(df["load_kw"], errors="coerce").max()),
+        "avg_solar_kw": float(pd.to_numeric(df["solar_kw"], errors="coerce").mean()),
+        "total_readings": int(len(df)),
+    }
+
+
+@app.get("/history/csv")
+def history_csv(hours: int = 600):
+    if not readings:
+        return Response("timestamp,load_kw,solar_kw,temp_c\n", media_type="text/csv")
+
+    df = pd.DataFrame(readings)
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
+
+    if "temp_c" not in df.columns:
+        df["temp_c"] = df.get("battery_temp", 28.0)
+
     for col in ["load_kw", "solar_kw", "temp_c"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
