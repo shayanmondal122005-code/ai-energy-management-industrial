@@ -287,6 +287,98 @@ async def run_dispatch_commands() -> None:
             logger.error("Dispatch failed for facility=%s: %s", facility.id, exc)
 
 
+async def run_watchdog_all() -> None:
+    """
+    Runs every 2 minutes for every active facility.
+    Detects malfunctions → activates safe mode → sends WhatsApp instantly.
+    This is the highest-priority job — power cut prevention.
+    """
+    from backend.core.database import AsyncSessionLocal
+    from backend.repositories.readings_repo import ReadingsRepository
+    from backend.services.watchdog import run_watchdog, format_malfunction_whatsapp
+    from backend.services.safe_mode import activate_safe_mode, is_safe_mode_active
+    from backend.services.alert_service import send_whatsapp_alert
+    from backend.repositories.alerts_repo import AlertsRepository
+    from sqlalchemy import select
+    from backend.models.database import User
+
+    facilities = await _get_active_facilities()
+
+    for facility in facilities:
+        try:
+            async with AsyncSessionLocal() as db:
+                r_repo   = ReadingsRepository(db)
+                readings = await r_repo.get_recent_raw(facility.id, hours=1)
+
+                # Check cached optimizer status
+                from backend.core.cache import cache_get
+                opt_cache = await cache_get(f"dispatch_schedule:{facility.id}")
+                opt_status = opt_cache.get("status") if opt_cache else None
+
+                result = run_watchdog(
+                    readings=readings,
+                    facility_name=facility.name,
+                    facility_id=str(facility.id),
+                    solar_kw_installed=facility.solar_kw,
+                    optimizer_status=opt_status,
+                )
+
+                if not result.safe:
+                    malfunction_types = [m.type.value for m in result.malfunctions]
+                    critical_faults   = [m for m in result.malfunctions if m.severity == "critical"]
+
+                    # ── Activate safe mode (force grid + HOLD + shed P4-P5) ──
+                    safe_actions = await activate_safe_mode(
+                        facility_id=facility.id,
+                        tenant_id=facility.tenant_id,
+                        malfunction_types=malfunction_types,
+                        db=db,
+                    )
+
+                    # ── Write critical alerts to DB ──────────────────────────
+                    a_repo = AlertsRepository(db)
+                    for m in result.malfunctions:
+                        await a_repo.create(
+                            facility_id=facility.id,
+                            tenant_id=facility.tenant_id,
+                            severity=m.severity,
+                            type_=m.type.value,
+                            message=m.message,
+                            value=m.value,
+                            threshold=m.threshold,
+                        )
+                    await db.commit()
+
+                    # ── Send WhatsApp to ALL operators + Shayan (super_admin) ──
+                    if critical_faults:
+                        users_result = await db.execute(
+                            select(User).where(
+                                User.whatsapp.isnot(None),
+                                User.is_active == True,
+                                User.role.in_(["operator", "tenant_admin", "super_admin"]),
+                            )
+                        )
+                        users = list(users_result.scalars().all())
+
+                        for user in users:
+                            is_shayan = user.role == "super_admin"
+                            msg = format_malfunction_whatsapp(result, is_shayan=is_shayan)
+                            sent = send_whatsapp_alert(user.whatsapp, msg)
+                            logger.info(
+                                "Watchdog WhatsApp → %s (%s): sent=%s",
+                                user.email, user.role, sent,
+                            )
+
+                    logger.critical(
+                        "WATCHDOG: facility=%s faults=%d safe_mode=%s shed_kw=%.0f",
+                        facility.name, len(result.malfunctions),
+                        result.safe, safe_actions.get("shed_kw", 0),
+                    )
+
+        except Exception as exc:
+            logger.error("Watchdog failed for facility=%s: %s", facility.id, exc)
+
+
 async def run_weekly_reports() -> None:
     """Generate weekly PDF reports for all active facilities."""
     logger.info("Weekly report generation — TODO: implement reportlab PDF generation")

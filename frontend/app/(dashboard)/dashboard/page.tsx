@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { readings, alerts, facilities } from "@/lib/api"
 import { MetricCard } from "@/components/dashboard/MetricCard"
 import { AlertBadge } from "@/components/dashboard/AlertBadge"
+import { SafetyBanner } from "@/components/dashboard/SafetyBanner"
 import { useLiveReadings, useLiveAlerts } from "@/lib/realtime"
 import { useEffect, useState } from "react"
 
@@ -66,6 +67,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Safety watchdog banner — shows on every page, always visible */}
+      {facilityId && <SafetyBanner facilityId={facilityId} />}
 
       {/* Metric row */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">

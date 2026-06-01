@@ -24,6 +24,15 @@ async def start_scheduler() -> None:
         run_weekly_reports,
         run_optimizer_all,
         run_dispatch_commands,
+        run_watchdog_all,
+    )
+
+    # ── WATCHDOG — highest priority, runs every 2 minutes ──
+    # Detects malfunctions → safe mode → WhatsApp before any power cut
+    _scheduler.add_job(
+        run_watchdog_all,
+        IntervalTrigger(minutes=2),
+        id="watchdog", replace_existing=True,
     )
 
     # LP optimizer runs every morning at 6am IST — builds full 24h schedule
