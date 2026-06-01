@@ -1,324 +1,113 @@
+"""MicroGrid AI — FastAPI application entry point."""
+import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from io import StringIO
-import math
-import random
+from datetime import datetime, timezone
 
-from fastapi import FastAPI
-from fastapi.responses import Response
-import pandas as pd
-import requests
+import sentry_sdk
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
-# In-memory storage
-readings = []
+from backend.api.v1 import auth, facilities, readings, grid, alerts, reports
+from backend.core.cache import ping_redis
+from backend.core.config import get_settings
+from backend.core.database import ping_db
+from backend.core.rate_limit import limiter
+from backend.jobs.scheduler import start_scheduler, stop_scheduler
 
+settings = get_settings()
+logger = logging.getLogger(__name__)
 
-def build_simulated_reading(ts, last_soc=68.0):
-    hour = ts.hour
-    month = ts.month
-    load_factor = 1.35 if 8 <= hour <= 11 else 1.25 if 18 <= hour <= 22 else 0.75 if hour <= 5 else 1.0
-    load_kw = max(80.0, min(600.0, 300.0 * load_factor + random.uniform(-20, 20)))
-
-    if 6 <= hour <= 18:
-        solar_angle = math.sin((hour - 6) * math.pi / 12)
-        cloud_factor = 0.45 if month in [6, 7, 8, 9] else 0.85
-        solar_kw = max(0.0, 200.0 * solar_angle * cloud_factor + random.uniform(-8, 8))
-    else:
-        solar_kw = 0.0
-
-    net_kw = solar_kw - load_kw
-    soc_change = net_kw / 500.0 * 100.0 * 0.25
-    battery_soc = max(10.0, min(95.0, last_soc + soc_change))
-
-    return {
-        "timestamp": ts.isoformat(),
-        "load_kw": round(load_kw, 2),
-        "solar_kw": round(solar_kw, 2),
-        "battery_soc": round(battery_soc, 2),
-        "battery_temp": round(28.0 + random.uniform(-2, 4), 2),
-        "temp_c": round(28.0 + random.uniform(-2, 4), 2),
-    }
-
-
-def seed_demo_history(days=12):
-    readings.clear()
-    ts = datetime.now() - timedelta(days=days)
-    last_soc = 68.0
-
-    for _ in range(days * 24 * 4):
-        reading = build_simulated_reading(ts, last_soc)
-        readings.append(reading)
-        last_soc = reading["battery_soc"]
-        ts += timedelta(minutes=15)
-
-    return readings[-1] if readings else None
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=0.1,
+        environment=settings.environment,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Auto-seed on cold start so the dashboard always has live data
-    # even after Render spins the service down due to inactivity.
-    if not readings:
-        seed_demo_history(days=12)
+    logger.info("MicroGrid AI v%s starting — env=%s", settings.app_version, settings.environment)
+    await start_scheduler()
     yield
+    await stop_scheduler()
+    logger.info("MicroGrid AI shutting down")
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    title="MicroGrid AI API",
+    version=settings.app_version,
+    description="Production-grade India-native energy management platform",
+    docs_url="/docs" if settings.debug else None,
+    redoc_url="/redoc" if settings.debug else None,
+    lifespan=lifespan,
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+_origins = [
+    "https://microgrid-ai.vercel.app",
+    "http://localhost:3000",
+]
+if settings.debug:
+    _origins.append("http://localhost:3001")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 
-@app.get("/")
-def root():
-    return {"status": "running", "service": "MicroGrid AI Backend"}
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
-@app.post("/ingest")
-def ingest(payload: dict):
-    """
-    Receives feeder data every 15 minutes.
-    """
-    required_fields = ["timestamp", "load_kw", "solar_kw", "battery_soc"]
-    missing = [field for field in required_fields if field not in payload]
-
-    if missing:
-        return {"status": "error", "missing_fields": missing}
-
-    readings.append(payload)
-
-    # Prevent unlimited memory growth.
-    if len(readings) > 10000:
-        del readings[:2000]
-
-    return {"status": "received", "records": len(readings)}
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    import time
+    start = time.perf_counter()
+    response = await call_next(request)
+    latency_ms = (time.perf_counter() - start) * 1000
+    logger.info("method=%s path=%s status=%d latency_ms=%.1f",
+                request.method, request.url.path, response.status_code, latency_ms)
+    return response
 
 
-@app.get("/data/count")
-def data_count():
-    return {"records": len(readings)}
+app.include_router(auth.router,       prefix="/auth",       tags=["auth"])
+app.include_router(facilities.router, prefix="/facilities", tags=["facilities"])
+app.include_router(readings.router,   prefix="/facilities", tags=["readings"])
+app.include_router(grid.router,       prefix="/facilities", tags=["grid"])
+app.include_router(alerts.router,     prefix="/facilities", tags=["alerts"])
+app.include_router(reports.router,    prefix="/facilities", tags=["reports"])
 
 
-@app.get("/live")
-def live():
-    if not readings:
-        return {
-            "status": "empty",
-            "timestamp": None,
-            "load_kw": 0.0,
-            "solar_kw": 0.0,
-            "battery_soc": 0.0,
-            "battery_temp": 28.0,
-        }
-
-    latest = readings[-1]
+@app.get("/health", tags=["health"])
+async def health():
+    db_ok    = await ping_db()
+    redis_ok = await ping_redis()
+    status   = "ok" if (db_ok and redis_ok) else "degraded"
     return {
-        "status": "ok",
-        "timestamp": latest.get("timestamp"),
-        "load_kw": float(latest.get("load_kw", 0.0)),
-        "solar_kw": float(latest.get("solar_kw", 0.0)),
-        "battery_soc": float(latest.get("battery_soc", 0.0)),
-        "battery_temp": float(latest.get("battery_temp", latest.get("temp_c", 28.0))),
+        "status": status,
+        "version": settings.app_version,
+        "db": db_ok,
+        "redis": redis_ok,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
-@app.get("/stats")
-def stats():
-    if not readings:
-        return {
-            "avg_load_kw": 0.0,
-            "peak_load_kw": 0.0,
-            "avg_solar_kw": 0.0,
-            "total_readings": 0,
-        }
-
-    df = pd.DataFrame(readings)
-    return {
-        "avg_load_kw": float(pd.to_numeric(df["load_kw"], errors="coerce").mean()),
-        "peak_load_kw": float(pd.to_numeric(df["load_kw"], errors="coerce").max()),
-        "avg_solar_kw": float(pd.to_numeric(df["solar_kw"], errors="coerce").mean()),
-        "total_readings": int(len(df)),
-    }
-
-
-@app.get("/history/csv")
-def history_csv(hours: int = 600):
-    if not readings:
-        return Response("timestamp,load_kw,solar_kw,temp_c\n", media_type="text/csv")
-
-    df = pd.DataFrame(readings)
-    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
-    df = df.dropna(subset=["timestamp"]).sort_values("timestamp")
-
-    if "temp_c" not in df.columns:
-        df["temp_c"] = df.get("battery_temp", 28.0)
-
-    for col in ["load_kw", "solar_kw", "temp_c"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-
-    hourly = (
-        df.set_index("timestamp")[["load_kw", "solar_kw", "temp_c"]]
-        .resample("1h")
-        .mean()
-        .dropna(subset=["load_kw"])
-        .tail(hours)
-        .reset_index()
-    )
-
-    output = StringIO()
-    hourly.to_csv(output, index=False)
-    return Response(output.getvalue(), media_type="text/csv")
-
-
-@app.post("/simulate/tick")
-def simulate_tick():
-    if not readings:
-        reading = seed_demo_history(days=12)
-        return {
-            "status": "seeded",
-            "records": len(readings),
-            "reading": reading,
-            "note": "Generated 12 days of 15-minute demo history for dashboard live mode.",
-        }
-
-    if readings:
-        last_ts = pd.to_datetime(readings[-1].get("timestamp"), errors="coerce")
-        if pd.isna(last_ts):
-            ts = datetime.now()
-        else:
-            ts = last_ts.to_pydatetime() + timedelta(minutes=15)
-        last_soc = float(readings[-1].get("battery_soc", 68.0))
-    else:
-        ts = datetime.now() - timedelta(days=10)
-        last_soc = 68.0
-
-    reading = build_simulated_reading(ts, last_soc)
-    readings.append(reading)
-
-    if len(readings) > 10000:
-        del readings[:2000]
-
-    return {"status": "simulated", "records": len(readings), "reading": reading}
-
-
-@app.post("/simulate/seed")
-def simulate_seed(days: int = 12):
-    reading = seed_demo_history(days=max(10, days))
-    return {
-        "status": "seeded",
-        "records": len(readings),
-        "reading": reading,
-    }
-
-
-@app.get("/simulate/seed")
-def simulate_seed_get(days: int = 12):
-    return simulate_seed(days)
-
-
-@app.get("/solar/health")
-def solar_health_check():
-    """
-    Runs all 4 solar health detectors on current data.
-    """
-    if len(readings) < 96:
-        return {"status": "insufficient_data", "alerts": []}
-
-    df = pd.DataFrame(readings)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-    alerts = []
-    pr = 1.0
-
-    # DETECTOR 1: Panel soiling / dirty panels
-    recent_24h = df.tail(96)
-    daytime = recent_24h[
-        pd.to_datetime(recent_24h["timestamp"]).dt.hour.between(9, 15)
-    ]
-
-    if len(daytime) > 0:
-        avg_solar = daytime["solar_kw"].mean()
-        theoretical = 180.0
-        pr = avg_solar / theoretical if theoretical > 0 else 1.0
-
-        if pr < 0.75:
-            alerts.append(
-                {
-                    "type": "SOILING",
-                    "severity": "WARNING",
-                    "message": (
-                        f"Panel Performance Ratio {pr:.2f} below 0.75 threshold. "
-                        "Panels likely dirty."
-                    ),
-                    "action": "Schedule panel cleaning",
-                }
-            )
-        elif pr < 0.85:
-            alerts.append(
-                {
-                    "type": "SOILING",
-                    "severity": "INFO",
-                    "message": (
-                        f"Performance Ratio {pr:.2f} - slight degradation noticed."
-                    ),
-                    "action": "Monitor over next 3 days",
-                }
-            )
-
-    # DETECTOR 2: Sudden output drop
-    if len(df) >= 4:
-        last_4 = df.tail(4)["solar_kw"].values
-        recent_drop = last_4[0] - last_4[-1]
-        hour_now = pd.to_datetime(df.iloc[-1]["timestamp"]).hour
-
-        if recent_drop > 50 and 9 <= hour_now <= 16:
-            alerts.append(
-                {
-                    "type": "SUDDEN_DROP",
-                    "severity": "CRITICAL",
-                    "message": (
-                        f"Solar output dropped {recent_drop:.0f} kW rapidly during "
-                        "daylight hours without weather variance."
-                    ),
-                    "action": "Inspect inverter links immediately",
-                }
-            )
-
-    # DETECTOR 3: Storm warning check
-    try:
-        weather_r = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": 22.57,
-                "longitude": 88.36,
-                "hourly": "windspeed_10m,precipitation_probability",
-                "forecast_days": 2,
-                "timezone": "Asia/Kolkata",
-            },
-            timeout=5,
-        )
-
-        if weather_r.status_code == 200:
-            wdata = weather_r.json()["hourly"]
-            max_wind = max(wdata["windspeed_10m"][:48])
-            max_rain = max(wdata["precipitation_probability"][:48])
-
-            if max_wind > 15 and max_rain > 70:
-                alerts.append(
-                    {
-                        "type": "STORM",
-                        "severity": "WARNING",
-                        "message": (
-                            f"Storm forecast incoming. Max wind: {max_wind:.0f} km/h, "
-                            f"Rain probability: {max_rain:.0f}%."
-                        ),
-                        "action": "Physical structural mounting check",
-                    }
-                )
-    except Exception:
-        pass
-
-    return {
-        "status": "ok",
-        "alerts_count": len(alerts),
-        "alerts": alerts,
-        "performance_ratio": round(pr, 3),
-        "checked_at": datetime.now().isoformat(),
-    }
+@app.get("/", tags=["health"])
+async def root():
+    return {"service": "MicroGrid AI API", "version": settings.app_version, "status": "running"}

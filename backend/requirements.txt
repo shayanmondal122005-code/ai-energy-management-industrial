@@ -1,7 +1,50 @@
-fastapi
-uvicorn
-pandas
-numpy
-httpx
-requests
-python-multipart
+# MicroGrid AI — Backend dependencies (Python 3.11+)
+
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# Database
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.29.0
+alembic==1.13.3
+pydantic-settings==2.5.2
+
+# Auth + security
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.0
+slowapi==0.1.9
+
+# Cache
+redis[hiredis]==5.1.0
+
+# AI / ML  (preserve existing physics + forecast logic)
+xgboost==2.1.1
+scikit-learn==1.5.2
+numpy==1.26.4
+pandas==2.2.3
+pvlib==0.11.1
+
+# Background jobs
+apscheduler==3.10.4
+
+# HTTP client
+httpx==0.27.2
+requests==2.32.3
+
+# WhatsApp alerts
+twilio==9.3.3
+
+# PDF report generation
+reportlab==4.2.2
+
+# Observability
+sentry-sdk[fastapi]==2.14.0
+
+# Supabase client
+supabase==2.7.4
+
+# Utilities
+python-dateutil==2.9.0
+pytz==2024.2

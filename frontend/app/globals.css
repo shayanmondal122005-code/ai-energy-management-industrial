@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 20% 5%;
+    --foreground: 210 40% 92%;
+    --card: 220 20% 7%;
+    --card-foreground: 210 40% 92%;
+    --border: 220 20% 14%;
+    --input: 220 20% 10%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+    --muted: 220 20% 12%;
+    --muted-foreground: 215 20% 45%;
+    --accent: 160 84% 39%;
+    --destructive: 0 84% 60%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* Energy-specific custom classes */
+.metric-card {
+  @apply bg-[#0b1120] border border-[#1c2d47] rounded-lg p-4 relative overflow-hidden;
+  @apply transition-colors hover:border-blue-500/50;
+}
+.metric-card::after {
+  content: '';
+  @apply absolute bottom-0 left-0 right-0 h-0.5;
+  background: linear-gradient(90deg, #2563eb 0%, #10b981 100%);
+}
+
+.sec-label {
+  @apply font-mono text-[9px] tracking-[4px] uppercase text-blue-500 font-semibold;
+  @apply pb-2 border-b border-[#1c2d47] mb-4 mt-7;
+}
+
+.status-live   { @apply text-emerald-400 bg-emerald-400/10 border border-emerald-400/30; }
+.status-demo   { @apply text-amber-400  bg-amber-400/10  border border-amber-400/30; }
+.status-offline { @apply text-red-400   bg-red-400/10    border border-red-400/30; }

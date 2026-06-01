@@ -1,0 +1,56 @@
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+
+      - name: Run unit tests
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./test.db"
+          JWT_SECRET: "test-secret-not-for-production"
+          REDIS_URL: "redis://localhost:6379"
+        run: pytest tests/ -v --tb=short
+
+      - name: Accuracy gate — MAPE must be < 15%
+        env:
+          DATABASE_URL: "sqlite+aiosqlite:///./test.db"
+          JWT_SECRET: "test-secret-not-for-production"
+        run: python -c "
+import numpy as np, pandas as pd
+from services.forecasting import train_load_model, predict_next_24h
+from data_loader import add_time_features
+
+hours = pd.date_range('2024-01-01', periods=2000, freq='1h')
+df = pd.DataFrame({
+    'load_kw': 300 + 80*np.sin(np.arange(2000)*0.26) + np.random.normal(0,20,2000),
+    'solar_kw': [max(0, 180*np.sin((h.hour-6)*np.pi/12)) for h in hours],
+    'battery_soc': 70 + np.random.normal(0,5,2000),
+    'temp_c': 28 + np.random.normal(0,3,2000),
+}, index=hours)
+df = add_time_features(df)
+model, mae, mape, _, _ = train_load_model(df)
+print(f'MAPE: {mape:.2f}%')
+assert mape < 15.0, f'MAPE {mape:.2f}% exceeds 15% threshold — model quality gate FAILED'
+print('Model accuracy gate PASSED')
+"
