@@ -160,6 +160,133 @@ async def run_alert_checks() -> None:
     logger.info("Alert check: processed %d undelivered critical alerts", len(alerts))
 
 
+async def run_optimizer_all() -> None:
+    """Run LP optimizer for every active facility. Stores schedule in Redis."""
+    from backend.core.database import AsyncSessionLocal
+    from backend.repositories.readings_repo import ReadingsRepository
+    from backend.repositories.facilities_repo import FacilitiesRepository
+    from backend.services.forecasting import readings_to_dataframe, add_time_features, train_load_model, predict_next_24h
+    from backend.services.optimizer import optimize_dispatch
+    from backend.services.alert_service import INDIA_TARIFFS
+    from backend.core.cache import cache_set
+    import math
+
+    facilities = await _get_active_facilities()
+    logger.info("Running LP optimizer for %d facilities", len(facilities))
+
+    for facility in facilities:
+        try:
+            async with AsyncSessionLocal() as db:
+                r_repo   = ReadingsRepository(db)
+                readings = await r_repo.get_recent_raw(facility.id, hours=240)
+                if len(readings) < 48:
+                    continue
+
+                df_raw = readings_to_dataframe(readings)
+                df     = add_time_features(df_raw)
+                model, _, _ = train_load_model(df)
+                fc     = predict_next_24h(model, df.tail(200))
+                load_fc = fc["forecast_kw"].tolist()
+
+                hour_now = datetime.now(timezone.utc).hour
+                solar_fc = [
+                    max(0.0, facility.solar_kw * math.sin((h % 24 - 6) * math.pi / 12) * 0.82)
+                    if 6 <= (h % 24) <= 18 else 0.0
+                    for h in range(hour_now, hour_now + 24)
+                ]
+
+                tariff = INDIA_TARIFFS.get(facility.state_tariff, INDIA_TARIFFS["West Bengal - CESC"])
+                price_fc = []
+                for offset in range(24):
+                    h = (hour_now + offset) % 24
+                    if h in tariff["cheap_hours"]:
+                        price_fc.append(tariff["cheap"])
+                    elif h in tariff["peak_hours"]:
+                        price_fc.append(tariff["peak"])
+                    else:
+                        price_fc.append(tariff["normal"])
+
+                latest      = readings[-1]
+                current_soc = float(getattr(latest, "battery_soc", 70)) / 100
+
+                schedule = optimize_dispatch(
+                    load_forecast=load_fc,
+                    solar_forecast=solar_fc,
+                    tariff_schedule=price_fc,
+                    current_soc=current_soc,
+                    battery_kwh=facility.battery_kwh,
+                )
+
+                # Store schedule in Redis — dispatch job reads this every 15 min
+                await cache_set(
+                    f"dispatch_schedule:{facility.id}",
+                    {
+                        "charge_kw"   : schedule.charge_kw,
+                        "discharge_kw": schedule.discharge_kw,
+                        "grid_kw"     : schedule.grid_kw,
+                        "hour_base"   : hour_now,
+                        "status"      : schedule.status,
+                        "savings"     : schedule.savings,
+                    },
+                    ttl_seconds=86400,
+                )
+                logger.info(
+                    "Optimizer: facility=%s status=%s savings=₹%.0f",
+                    facility.name, schedule.status, schedule.savings,
+                )
+        except Exception as exc:
+            logger.error("Optimizer failed for facility=%s: %s", facility.id, exc)
+
+
+async def run_dispatch_commands() -> None:
+    """
+    Every 15 minutes: read today's optimal schedule from Redis
+    and write the current-hour battery command to grid_state table.
+    This is what physically controls the battery (via Modbus when connected).
+    """
+    from backend.core.database import AsyncSessionLocal
+    from backend.core.cache import cache_get
+    from backend.services.optimizer import get_current_hour_command, OptimalSchedule
+    from sqlalchemy import select
+    from backend.models.database import GridState
+
+    facilities = await _get_active_facilities()
+
+    for facility in facilities:
+        try:
+            schedule_data = await cache_get(f"dispatch_schedule:{facility.id}")
+            if not schedule_data:
+                logger.debug("No schedule in cache for facility=%s — skipping dispatch", facility.id)
+                continue
+
+            hour_now     = datetime.now(timezone.utc).hour
+            hour_base    = schedule_data["hour_base"]
+            hour_offset  = (hour_now - hour_base) % 24
+
+            charge_kw    = schedule_data["charge_kw"]
+            discharge_kw = schedule_data["discharge_kw"]
+
+            c = charge_kw[hour_offset]    if hour_offset < 24 else 0.0
+            d = discharge_kw[hour_offset] if hour_offset < 24 else 0.0
+
+            command = "CHARGE" if c > 1.0 else "DISCHARGE" if d > 1.0 else "HOLD"
+
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(
+                    select(GridState).where(GridState.facility_id == facility.id)
+                )
+                gs = result.scalar_one_or_none()
+                if gs and gs.battery_command != command:
+                    gs.battery_command = command
+                    await db.commit()
+                    logger.info(
+                        "Dispatch: facility=%s hour=%d → %s (charge=%.0fkW discharge=%.0fkW)",
+                        facility.name, hour_now, command, c, d,
+                    )
+        except Exception as exc:
+            logger.error("Dispatch failed for facility=%s: %s", facility.id, exc)
+
+
 async def run_weekly_reports() -> None:
     """Generate weekly PDF reports for all active facilities."""
     logger.info("Weekly report generation — TODO: implement reportlab PDF generation")

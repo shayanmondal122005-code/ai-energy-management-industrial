@@ -45,6 +45,9 @@ sentry-sdk[fastapi]==2.14.0
 # Supabase client
 supabase==2.7.4
 
+# Optimizer (LP solver)
+scipy==1.14.1
+
 # Utilities
 python-dateutil==2.9.0
 pytz==2024.2

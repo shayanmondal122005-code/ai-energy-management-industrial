@@ -22,6 +22,29 @@ async def start_scheduler() -> None:
         run_alert_checks,
         run_data_retention,
         run_weekly_reports,
+        run_optimizer_all,
+        run_dispatch_commands,
+    )
+
+    # LP optimizer runs every morning at 6am IST — builds full 24h schedule
+    _scheduler.add_job(
+        run_optimizer_all,
+        CronTrigger(hour=6, minute=0, timezone="Asia/Kolkata"),
+        id="optimizer_daily", replace_existing=True,
+    )
+
+    # Also re-optimize every hour (fresh forecast data)
+    _scheduler.add_job(
+        run_optimizer_all,
+        IntervalTrigger(hours=1),
+        id="optimizer_hourly", replace_existing=True,
+    )
+
+    # Execute battery commands every 15 min based on today's schedule
+    _scheduler.add_job(
+        run_dispatch_commands,
+        IntervalTrigger(minutes=settings.decision_cycle_interval_minutes),
+        id="dispatch_commands", replace_existing=True,
     )
 
     # Decision cycle + solar health every 15 minutes

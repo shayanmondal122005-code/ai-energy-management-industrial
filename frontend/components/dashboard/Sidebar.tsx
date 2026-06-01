@@ -3,20 +3,21 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard, TrendingUp, Zap, Layers, Battery,
-  Sun, DollarSign, Bell, Settings, Shield,
+  Sun, DollarSign, Bell, Settings, Shield, BrainCircuit,
 } from "lucide-react"
 
 const NAV = [
-  { href: "/dashboard", label: "Overview",   icon: LayoutDashboard },
+  { href: "/dashboard", label: "Overview",    icon: LayoutDashboard },
+  { href: "/optimize",  label: "Optimizer",   icon: BrainCircuit },
   { href: "/forecast",  label: "AI Forecast", icon: TrendingUp },
-  { href: "/grid",      label: "Grid Control",icon: Zap },
-  { href: "/loads",     label: "Load Manager",icon: Layers },
-  { href: "/battery",   label: "Battery",     icon: Battery },
-  { href: "/solar",     label: "Solar Health",icon: Sun },
-  { href: "/savings",   label: "Savings",     icon: DollarSign },
-  { href: "/alerts",    label: "Alerts",      icon: Bell },
-  { href: "/settings",  label: "Settings",    icon: Settings },
-  { href: "/admin",     label: "Admin",       icon: Shield },
+  { href: "/grid",      label: "Grid Control", icon: Zap },
+  { href: "/loads",     label: "Load Manager", icon: Layers },
+  { href: "/battery",   label: "Battery",      icon: Battery },
+  { href: "/solar",     label: "Solar Health", icon: Sun },
+  { href: "/savings",   label: "Savings",      icon: DollarSign },
+  { href: "/alerts",    label: "Alerts",       icon: Bell },
+  { href: "/settings",  label: "Settings",     icon: Settings },
+  { href: "/admin",     label: "Admin",        icon: Shield },
 ]
 
 export function Sidebar() {
