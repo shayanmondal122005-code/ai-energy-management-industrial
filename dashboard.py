@@ -619,7 +619,11 @@ def forecast_24h(model, df_raw, err_hr, solar_cap=200, start_soc=72.0, bat_kwh=5
         ext = engineer(ext)
 
         X   = ext[FEATURES].iloc[-1:]
-        p   = float(np.clip(model.predict(X)[0], 80, 600))
+        if X.empty or X.isnull().values.any():
+            # Not enough lag history for this step — use last known load
+            p = float(hist["load_kw"].iloc[-1])
+        else:
+            p = float(np.clip(model.predict(X)[0], 80, 600))
         e   = err_hr.get(h, 25.0)
         fc.append(p); up.append(p+1.6*e); lo.append(max(0,p-1.6*e))
         sol.append(solar_next)
@@ -822,7 +826,7 @@ with st.sidebar:
     st.divider()
 
     st.markdown('<div class="sb-label">Facility</div>', unsafe_allow_html=True)
-    facility = st.selectbox("", [
+    facility = st.selectbox("Facility", [
         "Apollo Multispeciality Hospital, Kolkata",
         "AMRI Hospital, Salt Lake",
         "Medica Superspecialty Hospital",
@@ -848,7 +852,7 @@ with st.sidebar:
     st.divider()
 
     st.markdown('<div class="sb-label">Data Source</div>', unsafe_allow_html=True)
-    src = st.radio("", [
+    src = st.radio("Data Source", [
         "Live (Render backend)",
         "Upload CSV",
         "Demo mode",
