@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL (local dev — mirrors Supabase schema) ────────
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: microgrid
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infrastructure/supabase/migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+      - ./infrastructure/supabase/migrations/002_indexes.sql:/docker-entrypoint-initdb.d/002_indexes.sql
+      - ./infrastructure/supabase/seed.sql:/docker-entrypoint-initdb.d/003_seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (local dev — mirrors Upstash) ─────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── FastAPI backend ──────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/microgrid
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: local-dev-secret-change-in-production
+      DEBUG: "true"
+      ENVIRONMENT: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── Next.js frontend ─────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:8000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-dev-key
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  pg_data:
