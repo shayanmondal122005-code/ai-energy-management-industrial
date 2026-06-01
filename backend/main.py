@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from io import StringIO
 import math
@@ -7,9 +8,6 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 import pandas as pd
 import requests
-
-
-app = FastAPI()
 
 # In-memory storage
 readings = []
@@ -54,6 +52,18 @@ def seed_demo_history(days=12):
         ts += timedelta(minutes=15)
 
     return readings[-1] if readings else None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-seed on cold start so the dashboard always has live data
+    # even after Render spins the service down due to inactivity.
+    if not readings:
+        seed_demo_history(days=12)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.get("/")

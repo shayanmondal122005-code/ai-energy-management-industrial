@@ -349,7 +349,7 @@ FEATURES = [
     "peak_x_monsoon","peak_x_summer",
 ]
 
-MIN_HISTORY_HOURS = 240
+MIN_HISTORY_HOURS = 48
 MIN_MODEL_ROWS = 48
 
 
@@ -402,11 +402,16 @@ def fetch_backend(hours=500):
             df = pd.read_csv(StringIO(r.text),
                              parse_dates=["timestamp"],
                              index_col="timestamp")
-            if len(df) >= 48:
-                return df, "live"
-    except Exception:
-        pass
-    return None, None
+            if len(df) >= MIN_MODEL_ROWS:
+                return df, "live", None
+            return None, None, f"Backend returned only {len(df)} hourly rows (need {MIN_MODEL_ROWS}). POST /simulate/seed to populate."
+        return None, None, f"Backend HTTP {r.status_code}"
+    except requests.exceptions.ConnectionError:
+        return None, None, f"Cannot reach {BACKEND_URL} — backend may be sleeping (Render free tier). Retrying..."
+    except requests.exceptions.Timeout:
+        return None, None, f"Backend timed out after 35s — Render is waking up. Refresh in 30s."
+    except Exception as e:
+        return None, None, str(e)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -896,9 +901,8 @@ data_tag = "demo"
 
 if src == "Live (Render backend)":
     with st.spinner("Connecting to live backend..."):
-        df_backend, tag = fetch_backend(hours=max(600, MIN_HISTORY_HOURS))
-    if df_backend is not None and len(df_backend) >= MIN_HISTORY_HOURS:
-        # Ensure required columns
+        df_backend, tag, backend_err = fetch_backend(hours=max(600, MIN_HISTORY_HOURS))
+    if df_backend is not None:
         for col in ["load_kw","solar_kw","temp_c"]:
             if col not in df_backend.columns:
                 df_backend[col] = 0.0
@@ -909,9 +913,9 @@ if src == "Live (Render backend)":
             cur_soc   = float(live_reading.get("battery_soc", cur_soc))
         backend_stats = fetch_stats()
     else:
-        st.sidebar.warning(
-            f"Backend has < {MIN_HISTORY_HOURS} hourly readings. Using demo data.\n"
-            "Run feeder.py to populate more history."
+        st.sidebar.error(
+            f"Backend unavailable — showing demo data.\n\n"
+            f"Reason: {backend_err}"
         )
         df_raw = synthetic_data(n_days=365, solar_kw=solar_cap)
         live_reading  = None
