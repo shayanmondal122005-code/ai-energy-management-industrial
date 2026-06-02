@@ -1,12 +1,4 @@
-streamlit
-pandas
-numpy
-xgboost
-scikit-learn
-plotly
-pvlib
-requests
-joblib
-matplotlib
-xgboost
-scikit-learn
+# Root requirements.txt — points to backend
+# Railway installs this first, then backend/requirements.txt
+# Keep this minimal to avoid conflicts
+-r backend/requirements.txt
