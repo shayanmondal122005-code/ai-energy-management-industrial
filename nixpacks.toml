@@ -1,5 +1,5 @@
 # Let Nixpacks auto-detect Python from requirements.txt
-# Only override the start command
+# Use python -m uvicorn so it works even if uvicorn isn't on PATH
 
 [start]
-cmd = "uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1"
+cmd = "python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1"
