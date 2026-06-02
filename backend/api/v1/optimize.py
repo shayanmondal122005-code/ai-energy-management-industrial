@@ -16,6 +16,7 @@ from backend.services.forecasting import (
     readings_to_dataframe, train_load_model,
 )
 from backend.services.optimizer import optimize_dispatch
+from backend.services.optimizer_v2 import optimize_dispatch_v2
 from backend.services.alert_service import INDIA_TARIFFS
 
 logger = logging.getLogger(__name__)
@@ -106,8 +107,12 @@ async def run_optimizer(
     latest      = readings[-1]
     current_soc = float(getattr(latest, "battery_soc", 70)) / 100
 
-    # Run LP optimizer
-    schedule = optimize_dispatch(
+    # Demand charge for this state
+    tariff_cfg    = INDIA_TARIFFS.get(facility.state_tariff, INDIA_TARIFFS["West Bengal - CESC"])
+    demand_charge = tariff_cfg["demand_per_kw"]
+
+    # Run V2 optimizer — energy + demand charge + degradation + grid charging
+    schedule = optimize_dispatch_v2(
         load_forecast=load_forecast,
         solar_forecast=solar_forecast,
         tariff_schedule=tariff_schedule,
@@ -115,20 +120,28 @@ async def run_optimizer(
         battery_kwh=facility.battery_kwh,
         max_charge_kw=150.0,
         max_discharge_kw=200.0,
+        demand_charge_per_kw=demand_charge,
+        month_peak_so_far_kw=0.0,  # TODO: track month-to-date peak from DB
     )
 
     result = {
-        "facility_id"   : str(facility_id),
-        "status"        : schedule.status,
-        "cost_optimized": schedule.cost_optimized,
-        "cost_baseline" : schedule.cost_baseline,
-        "savings_today" : schedule.savings,
-        "model_mae_kw"  : round(mae, 1),
-        "model_mape_pct": round(mape, 1),
-        "soc_trace"     : schedule.soc_trace,
-        "min_soc_pct"   : min(schedule.soc_trace),
-        "power_cut_risk": min(schedule.soc_trace) <= 12.0,
-        "schedule"      : schedule.summary,
+        "facility_id"      : str(facility_id),
+        "status"           : schedule.status,
+        "cost_optimized"   : schedule.cost_total,
+        "cost_baseline"    : schedule.cost_baseline,
+        "savings_today"    : schedule.savings,
+        "cost_energy"      : schedule.cost_energy,
+        "cost_demand"      : schedule.cost_demand,
+        "cost_degradation" : schedule.cost_degradation,
+        "peak_grid_kw"     : schedule.peak_grid_kw,
+        "grid_charge_kwh"  : schedule.grid_charge_kwh,
+        "solar_charge_kwh" : schedule.solar_charge_kwh,
+        "model_mae_kw"     : round(mae, 1),
+        "model_mape_pct"   : round(mape, 1),
+        "soc_trace"        : schedule.soc_trace,
+        "min_soc_pct"      : min(schedule.soc_trace),
+        "power_cut_risk"   : min(schedule.soc_trace) <= 12.0,
+        "schedule"         : schedule.summary,
     }
 
     await cache_set(cache_key, result, ttl_seconds=300)
