@@ -22,7 +22,7 @@ redis[hiredis]==5.1.0
 # AI / ML  (preserve existing physics + forecast logic)
 xgboost==2.1.1
 scikit-learn==1.5.2
-numpy==1.26.4
+numpy>=2.0.0,<2.3
 pandas==2.2.3
 pvlib==0.11.1
 
