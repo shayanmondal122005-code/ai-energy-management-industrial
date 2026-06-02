@@ -1,57 +1,105 @@
+import logging
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
 from backend.core.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Convert postgres:// → postgresql+asyncpg:// for async driver
-_db_url = settings.database_url
-if _db_url.startswith("postgres://"):
-    _db_url = _db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif _db_url.startswith("postgresql://"):
-    _db_url = _db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-engine = create_async_engine(
-    _db_url,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_pre_ping=True,  # detect stale connections
-    echo=settings.debug,
-)
-
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
+def _normalize_url(url: str) -> str:
+    """Force asyncpg driver."""
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 class Base(DeclarativeBase):
     pass
 
 
+# Lazy engine — created on first use, never at import time.
+# This prevents the app from crashing on startup if DATABASE_URL is
+# missing or malformed (healthcheck still passes, app stays up).
+_engine = None
+_sessionmaker: Optional[async_sessionmaker] = None
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        url = _normalize_url(settings.database_url)
+        if not url:
+            raise RuntimeError("DATABASE_URL is not set")
+        _engine = create_async_engine(
+            url,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_max_overflow,
+            pool_pre_ping=True,
+            echo=settings.debug,
+            # pgbouncer (Supabase pooler, port 6543) does NOT support
+            # prepared statements — disable asyncpg's statement cache.
+            connect_args={
+                "statement_cache_size": 0,
+                "prepared_statement_cache_size": 0,
+            },
+        )
+        logger.info("Database engine created")
+    return _engine
+
+
+def get_sessionmaker() -> async_sessionmaker:
+    global _sessionmaker
+    if _sessionmaker is None:
+        _sessionmaker = async_sessionmaker(
+            bind=get_engine(),
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autocommit=False,
+            autoflush=False,
+        )
+    return _sessionmaker
+
+
+# Backwards-compatible alias used across the codebase
+class _LazySessionLocal:
+    """Proxy so `AsyncSessionLocal()` works without eager engine creation."""
+    def __call__(self):
+        return get_sessionmaker()()
+
+
+AsyncSessionLocal = _LazySessionLocal()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency — yields a DB session per request."""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    session = get_sessionmaker()()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()
 
 
 async def ping_db() -> bool:
-    """Health check — returns True if DB is reachable."""
+    """Health check — returns True if DB is reachable. Never raises."""
     try:
-        async with AsyncSessionLocal() as session:
-            await session.execute(__import__("sqlalchemy").text("SELECT 1"))
+        session = get_sessionmaker()()
+        try:
+            await session.execute(text("SELECT 1"))
+        finally:
+            await session.close()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning("DB ping failed: %s", exc)
         return False
