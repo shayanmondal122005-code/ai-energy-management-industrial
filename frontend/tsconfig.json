@@ -17,9 +17,10 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
-      "@/*": ["./src/*"],
+      "@/*": ["./*"],
       "@/components/*": ["./components/*"],
       "@/lib/*": ["./lib/*"],
+      "@/types": ["./types/index.ts"],
       "@/types/*": ["./types/*"]
     }
   },
