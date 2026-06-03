@@ -10,10 +10,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        card: "hsl(var(--card))",
+        "card-foreground": "hsl(var(--card-foreground))",
+        input: "hsl(var(--input))",
+        primary: "hsl(var(--primary))",
+        "primary-foreground": "hsl(var(--primary-foreground))",
+        destructive: "hsl(var(--destructive))",
         bg:      "#060a12",
         panel:   "#0b1120",
-        border:  "#1c2d47",
-        muted:   "#3d5a80",
+        border:  "hsl(var(--border))",
+        muted:   "hsl(var(--muted))",
+        "muted-foreground": "hsl(var(--muted-foreground))",
         accent:  "#2563eb",
         solar:   "#f59e0b",
         battery: "#10b981",
