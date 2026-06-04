@@ -58,6 +58,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _origins = [
     "https://microgrid-ai.vercel.app",
+    "https://gleeful-elf-259dad.netlify.app",
     "http://localhost:3000",
 ]
 if settings.debug:

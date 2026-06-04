@@ -60,6 +60,7 @@ class User(Base):
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id     = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     email         = Column(Text, nullable=False, unique=True)
+    password_hash = Column(Text)
     role          = Column(String(20), nullable=False, default="viewer")
     whatsapp      = Column(Text)
     full_name     = Column(Text)

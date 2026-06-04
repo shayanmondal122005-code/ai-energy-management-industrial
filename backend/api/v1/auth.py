@@ -13,13 +13,50 @@ from backend.core.security import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    hash_password,
     verify_password,
 )
-from backend.models.schemas import LoginRequest, MeResponse, RefreshRequest, TokenResponse
+from backend.models.schemas import LoginRequest, MeResponse, RefreshRequest, RegisterRequest, RegisterResponse, TokenResponse
 from backend.repositories.users_repo import UsersRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.post("/register", response_model=RegisterResponse, status_code=201)
+@limiter.limit("3/minute")
+async def register(
+    request: Request,
+    payload: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    repo = UsersRepository(db)
+
+    # Check email not already taken
+    existing = await repo.get_by_email(payload.email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists",
+        )
+
+    password_hash = hash_password(payload.password)
+    user = await repo.create_tenant_and_user(
+        email=payload.email,
+        password_hash=password_hash,
+        full_name=payload.full_name,
+        organization=payload.organization,
+    )
+    await db.commit()
+
+    logger.info("REGISTER user_id=%s email=%s org=%s", user.id, payload.email, payload.organization)
+
+    return RegisterResponse(
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        email=payload.email,
+        message="Account created. Please sign in.",
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

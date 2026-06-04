@@ -13,6 +13,33 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=8)
 
 
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=10, max_length=128)
+    full_name: str = Field(min_length=2, max_length=200)
+    organization: str = Field(min_length=2, max_length=200)  # becomes tenant name
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must contain at least one digit")
+        if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?" for c in v):
+            raise ValueError("Password must contain at least one special character")
+        return v
+
+
+class RegisterResponse(BaseModel):
+    user_id: UUID
+    tenant_id: UUID
+    email: str
+    message: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

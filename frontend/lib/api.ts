@@ -70,6 +70,11 @@ export const auth = {
       "/auth/login",
       { method: "POST", body: JSON.stringify({ email, password }) }
     ),
+  register: (email: string, password: string, full_name: string, organization: string) =>
+    request<{ user_id: string; tenant_id: string; email: string; message: string }>(
+      "/auth/register",
+      { method: "POST", body: JSON.stringify({ email, password, full_name, organization }) }
+    ),
   me: () => request<{ user_id: string; tenant_id: string; email: string; role: string }>("/auth/me"),
 };
 
