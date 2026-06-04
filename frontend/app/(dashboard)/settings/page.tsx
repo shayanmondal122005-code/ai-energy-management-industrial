@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useQuery } from "@tanstack/react-query"
 import { useState, useEffect } from "react"
 import { facilities } from "@/lib/api"
@@ -6,7 +6,7 @@ import { INDIA_TARIFFS } from "@/types"
 
 export default function SettingsPage() {
   const [facilityId, setFacilityId] = useState("")
-  const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
+  const { data: facilityList = [] } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
   useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
   const facility = facilityList?.find(f => f.id === facilityId)
 
@@ -15,7 +15,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-bold text-white">Settings</h1>
         <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-          Facility config · Tariff · Notifications
+          Facility config Â· Tariff Â· Notifications
         </p>
       </div>
 
@@ -61,7 +61,7 @@ export default function SettingsPage() {
         <p className="sec-label !mt-0">API Access</p>
         <p className="text-sm text-muted">Use API keys to connect IoT gateways and feeders.</p>
         <div className="bg-bg border border-border rounded-lg px-4 py-3 font-mono text-xs text-muted">
-          Facility ID: {facilityId || "—"}
+          Facility ID: {facilityId || "â€”"}
         </div>
         <button className="px-5 py-2.5 border border-border text-muted hover:text-white rounded-lg text-sm transition-colors">
           Generate API Key

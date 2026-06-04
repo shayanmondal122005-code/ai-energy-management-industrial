@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect } from "react"
 import { facilities, grid } from "@/lib/api"
@@ -19,7 +19,7 @@ export default function GridPage() {
   const [reason, setReason]         = useState("")
   const qc = useQueryClient()
 
-  const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
+  const { data: facilityList = [] } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
   useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const { data: state } = useQuery({
@@ -60,7 +60,7 @@ export default function GridPage() {
       <div>
         <h1 className="text-xl font-bold text-white">Grid Control</h1>
         <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-          IEC 61850 · Two-step confirmation · Full audit log
+          IEC 61850 Â· Two-step confirmation Â· Full audit log
         </p>
       </div>
 
@@ -87,7 +87,7 @@ export default function GridPage() {
         )}
       </div>
 
-      {/* Control buttons — 2-step confirm */}
+      {/* Control buttons â€” 2-step confirm */}
       <div className="bg-panel border border-border rounded-xl p-6 space-y-4">
         <p className="sec-label !mt-0">Control Commands</p>
         <p className="text-xs text-muted">All commands require confirmation within 60 seconds.</p>
@@ -112,7 +112,7 @@ export default function GridPage() {
         ) : (
           <div className="border border-amber-500/30 bg-amber-500/7 rounded-xl p-4 space-y-3">
             <p className="text-amber-300 font-medium text-sm">
-              ⚠ Confirm {pendingCmd.type} command — expires in 60 seconds
+              âš  Confirm {pendingCmd.type} command â€” expires in 60 seconds
             </p>
             <p className="text-xs text-muted font-mono">Command ID: {pendingCmd.id}</p>
             <div className="flex gap-3">

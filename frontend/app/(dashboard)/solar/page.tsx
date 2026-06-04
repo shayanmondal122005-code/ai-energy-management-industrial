@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useQuery } from "@tanstack/react-query"
 import { useState, useEffect } from "react"
 import { facilities, alerts } from "@/lib/api"
@@ -7,7 +7,7 @@ import { AlertBadge } from "@/components/dashboard/AlertBadge"
 
 export default function SolarPage() {
   const [facilityId, setFacilityId] = useState("")
-  const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
+  const { data: facilityList = [] } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
   useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const { data: health, isLoading } = useQuery({
@@ -26,7 +26,7 @@ export default function SolarPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Solar Health</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            4 detectors · Soiling · Fault · Degradation · Storm
+            4 detectors Â· Soiling Â· Fault Â· Degradation Â· Storm
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
@@ -47,7 +47,7 @@ export default function SolarPage() {
 
       {health?.alerts?.length === 0 && (
         <div className="text-sm text-emerald-400 py-8 text-center border border-emerald-400/20 bg-emerald-400/5 rounded-xl">
-          ✓ All 4 detectors passed — solar array is healthy
+          âœ“ All 4 detectors passed â€” solar array is healthy
         </div>
       )}
 
@@ -55,7 +55,7 @@ export default function SolarPage() {
         {(health?.alerts as Array<{ type: string; severity: string; message: string; action: string }> | undefined)?.map((a, i) => (
           <div key={i} className="space-y-1">
             <AlertBadge severity={a.severity} type={a.type} message={a.message} createdAt={new Date().toISOString()} />
-            <p className="text-xs font-mono text-muted pl-4">→ Action: {a.action}</p>
+            <p className="text-xs font-mono text-muted pl-4">â†’ Action: {a.action}</p>
           </div>
         ))}
       </div>
@@ -66,7 +66,7 @@ export default function SolarPage() {
         <div className="grid grid-cols-2 gap-3">
           {[
             { name: "Soiling Detection",    desc: "Performance Ratio < 0.75 triggers cleaning alert. PR = actual output / theoretical output." },
-            { name: "Sudden Drop",          desc: "Output drops > 50 kW in 1 hour during daylight. Indicates loose connection or inverter fault — fire risk." },
+            { name: "Sudden Drop",          desc: "Output drops > 50 kW in 1 hour during daylight. Indicates loose connection or inverter fault â€” fire risk." },
             { name: "Degradation Trend",    desc: "Week-over-week output drop > 15%. Indicates panel failure or progressive soiling." },
             { name: "Storm Warning",        desc: "Open-Meteo weather API: wind > 15 km/h AND rain probability > 70% in next 48h." },
           ].map(d => (

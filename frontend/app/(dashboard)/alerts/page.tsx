@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useState, useEffect } from "react"
 import { facilities, alerts } from "@/lib/api"
@@ -11,7 +11,7 @@ export default function AlertsPage() {
   const [unackOnly, setUnackOnly]           = useState(false)
   const qc = useQueryClient()
 
-  const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
+  const { data: facilityList = [] } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
   useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const { data: alertList, isLoading } = useQuery({
@@ -39,7 +39,7 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Alerts</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            Real-time · WhatsApp delivery · Full history
+            Real-time Â· WhatsApp delivery Â· Full history
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
