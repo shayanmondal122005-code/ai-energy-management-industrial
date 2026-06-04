@@ -8,7 +8,7 @@ import { AlertBadge } from "@/components/dashboard/AlertBadge"
 export default function SolarPage() {
   const [facilityId, setFacilityId] = useState("")
   const { data: facilityList = [] } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
-  useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
+  useEffect(() => { const first = facilityList[0]; if (first && !facilityId) setFacilityId(first.id) }, [facilityList, facilityId])
 
   const { data: health, isLoading } = useQuery({
     queryKey: ["solar-health", facilityId],
