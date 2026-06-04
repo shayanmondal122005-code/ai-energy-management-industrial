@@ -23,12 +23,12 @@ redis[hiredis]>=5.0.0
 # AI / ML
 xgboost>=2.1.0
 scikit-learn>=1.5.0
-numpy>=2.0.0,<2.3
+numpy>=1.26.0,<2.0
 pandas>=2.2.0
 pvlib>=0.11.0
 
 # Optimizer (LP solver — must match numpy ABI)
-scipy>=1.15.0,<1.16
+scipy==1.13.1
 
 # Background jobs
 apscheduler>=3.10.0

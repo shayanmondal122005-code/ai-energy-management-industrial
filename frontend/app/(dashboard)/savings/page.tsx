@@ -7,7 +7,7 @@ import { INDIA_TARIFFS } from "@/types"
 export default function SavingsPage() {
   const [facilityId, setFacilityId] = useState("")
   const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
-  useEffect(() => { if (facilityList?.length && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
+  useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const facility = facilityList?.find(f => f.id === facilityId)
   const tariff   = INDIA_TARIFFS[facility?.state_tariff ?? "West Bengal - CESC"] ?? INDIA_TARIFFS["West Bengal - CESC"]

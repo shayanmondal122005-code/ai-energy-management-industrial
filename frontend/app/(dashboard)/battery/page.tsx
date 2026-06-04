@@ -8,7 +8,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 export default function BatteryPage() {
   const [facilityId, setFacilityId] = useState("")
   const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
-  useEffect(() => { if (facilityList?.length && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
+  useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const { data: live } = useQuery({
     queryKey: ["live", facilityId],

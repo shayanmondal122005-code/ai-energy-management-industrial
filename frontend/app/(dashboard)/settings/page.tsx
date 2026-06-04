@@ -7,7 +7,7 @@ import { INDIA_TARIFFS } from "@/types"
 export default function SettingsPage() {
   const [facilityId, setFacilityId] = useState("")
   const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
-  useEffect(() => { if (facilityList?.length && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
+  useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
   const facility = facilityList?.find(f => f.id === facilityId)
 
   return (

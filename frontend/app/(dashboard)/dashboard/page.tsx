@@ -16,7 +16,7 @@ export default function DashboardPage() {
   })
 
   useEffect(() => {
-    if (facilityList?.length && !facilityId) setFacilityId(facilityList[0].id)
+    if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id)
   }, [facilityList, facilityId])
 
   const { data: live } = useQuery({

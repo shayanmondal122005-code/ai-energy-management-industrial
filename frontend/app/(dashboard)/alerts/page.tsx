@@ -12,7 +12,7 @@ export default function AlertsPage() {
   const qc = useQueryClient()
 
   const { data: facilityList } = useQuery({ queryKey: ["facilities"], queryFn: facilities.list })
-  useEffect(() => { if (facilityList?.length && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
+  useEffect(() => { if (facilityList && facilityList.length > 0 && !facilityId) setFacilityId(facilityList[0].id) }, [facilityList, facilityId])
 
   const { data: alertList, isLoading } = useQuery({
     queryKey: ["alerts", facilityId, severityFilter, unackOnly],
