@@ -119,3 +119,10 @@ export const INDIA_TARIFFS: Record<string, IndiaTariff> = {
     cheap_hours: [10,11,12,13,14,15], peak_hours: [17,18,19,20,21],
   },
 };
+
+// Standalone default (not an index access) so consumers always have a defined tariff
+export const DEFAULT_TARIFF: IndiaTariff = {
+  state: "West Bengal - CESC",
+  cheap: 4.20, normal: 6.10, peak: 7.85, demand_per_kw: 320,
+  cheap_hours: [10,11,12,13,14,15], peak_hours: [18,19,20,21,22],
+};

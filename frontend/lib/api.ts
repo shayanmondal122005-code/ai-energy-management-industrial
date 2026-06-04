@@ -125,7 +125,7 @@ export const alerts = {
       body: JSON.stringify({ alert_id: alertId }),
     }),
   solarHealth: (facilityId: string) =>
-    request<{ status: string; alerts: object[]; performance_ratio: number }>(
+    request<{ status: string; alerts: object[]; performance_ratio: number; checked_at?: string }>(
       `/facilities/${facilityId}/solar/health`
     ),
 };

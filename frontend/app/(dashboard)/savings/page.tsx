@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { facilities } from "@/lib/api"
-import { INDIA_TARIFFS } from "@/types"
+import { INDIA_TARIFFS, DEFAULT_TARIFF } from "@/types"
 
 export default function SavingsPage() {
   const [facilityId, setFacilityId] = useState("")
@@ -10,7 +10,7 @@ export default function SavingsPage() {
   useEffect(() => { const first = facilityList[0]; if (first && !facilityId) setFacilityId(first.id) }, [facilityList, facilityId])
 
   const facility = facilityList?.find(f => f.id === facilityId)
-  const tariff   = INDIA_TARIFFS[facility?.state_tariff ?? "West Bengal - CESC"] ?? INDIA_TARIFFS["West Bengal - CESC"]
+  const tariff   = INDIA_TARIFFS[facility?.state_tariff ?? "West Bengal - CESC"] ?? DEFAULT_TARIFF
 
   const batKwh  = facility?.battery_kwh ?? 500
   const peakKw  = 420

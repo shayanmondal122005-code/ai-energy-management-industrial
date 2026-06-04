@@ -182,10 +182,10 @@ export default function OptimizePage() {
                     formatter={(val: number, name: string) => [`${val} kW`, name]}
                   />
                   <Bar dataKey="charge"    name="Charge"    radius={[2, 2, 0, 0]}>
-                    {chartData.map((_, i) => <Cell key={i} fill="#10b981" />)}
+                    {chartData.map((_: unknown, i: number) => <Cell key={i} fill="#10b981" />)}
                   </Bar>
                   <Bar dataKey="discharge" name="Discharge" radius={[2, 2, 0, 0]}>
-                    {chartData.map((_, i) => <Cell key={i} fill="#f59e0b" />)}
+                    {chartData.map((_: unknown, i: number) => <Cell key={i} fill="#f59e0b" />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
