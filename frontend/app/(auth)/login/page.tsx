@@ -78,7 +78,12 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center font-mono text-[10px] text-muted mt-6">
+        <p className="text-center text-sm text-muted mt-6">
+          Don&apos;t have an account?{" "}
+          <a href="/register" className="text-accent hover:underline">Sign up</a>
+        </p>
+
+        <p className="text-center font-mono text-[10px] text-muted mt-3">
           MicroGrid AI v2.0 · India-native · IEC 61850
         </p>
       </div>
