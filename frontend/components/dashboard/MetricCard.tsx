@@ -17,9 +17,9 @@ export function MetricCard({ label, value, sub, color = "blue" }: MetricCardProp
   return (
     <div className="relative bg-panel border border-border rounded-xl p-5 overflow-hidden hover:border-accent/40 transition-colors">
       <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r ${COLOR_MAP[color]}`} />
-      <p className="font-mono text-[9px] tracking-[3px] uppercase text-muted mb-2">{label}</p>
+      <p className="font-mono text-[11px] tracking-[2px] uppercase text-slate-400 mb-2">{label}</p>
       <p className="text-2xl font-bold text-white tracking-tight">{value}</p>
-      {sub && <p className="text-xs text-muted mt-1">{sub}</p>}
+      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
     </div>
   )
 }

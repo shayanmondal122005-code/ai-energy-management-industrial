@@ -13,7 +13,7 @@
     --primary: 217 91% 60%;
     --primary-foreground: 222 47% 11%;
     --muted: 220 20% 12%;
-    --muted-foreground: 215 20% 45%;
+    --muted-foreground: 215 20% 65%;
     --accent: 160 84% 39%;
     --destructive: 0 84% 60%;
     --radius: 0.5rem;
@@ -37,7 +37,7 @@
 }
 
 .sec-label {
-  @apply font-mono text-[9px] tracking-[4px] uppercase text-blue-500 font-semibold;
+  @apply font-mono text-[11px] tracking-[3px] uppercase text-blue-400 font-semibold;
   @apply pb-2 border-b border-[#1c2d47] mb-4 mt-7;
 }
 
