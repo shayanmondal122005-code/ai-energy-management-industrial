@@ -13,11 +13,31 @@ settings = get_settings()
 
 
 def _normalize_url(url: str) -> str:
-    """Force asyncpg driver."""
+    """Force asyncpg driver and handle Supabase pooler usernames with dots."""
+    from urllib.parse import urlparse, urlunparse, quote
+
     if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+        url = url.replace("postgres://", "postgresql://", 1)
+
+    parsed = urlparse(url)
+
+    # Supabase pooler uses 'postgres.projectref' as username —
+    # the dot can confuse some drivers, so we URL-encode the username.
+    if parsed.username and "." in parsed.username:
+        encoded_user = quote(parsed.username, safe="")
+        # Rebuild netloc with encoded username
+        if parsed.password:
+            netloc = f"{encoded_user}:{parsed.password}@{parsed.hostname}"
+        else:
+            netloc = f"{encoded_user}@{parsed.hostname}"
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        url = urlunparse(parsed._replace(netloc=netloc))
+
+    # Force asyncpg driver
     if url.startswith("postgresql://"):
-        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
     return url
 
 
@@ -34,10 +54,11 @@ _sessionmaker: Optional[async_sessionmaker] = None
 
 def get_engine():
     global _engine
+    url = _normalize_url(settings.database_url)
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set")
     if _engine is None:
-        url = _normalize_url(settings.database_url)
-        if not url:
-            raise RuntimeError("DATABASE_URL is not set")
+        logger.info("Creating database engine for: %s", url.split("@")[-1] if "@" in url else "unknown")
         _engine = create_async_engine(
             url,
             pool_size=settings.db_pool_size,
