@@ -34,9 +34,9 @@ def _build_engine():
     port = parsed.port or 5432
     database = parsed.path.lstrip("/") or "postgres"
 
-    # Build a clean SQLAlchemy URL without the username (avoids dot-parsing issues).
-    # Pass user/password directly to asyncpg via connect_args.
-    sa_url = f"postgresql+asyncpg://{host}:{port}/{database}"
+    # Build SQLAlchemy URL with explicit user/password to avoid dot-parsing issues.
+    # asyncpg connect_args override whatever SQLAlchemy parses from the URL.
+    sa_url = f"postgresql+asyncpg://x:x@{host}:{port}/{database}"
 
     logger.info("Creating database engine for: %s:%s/%s (user=%s)", host, port, database, username)
 
