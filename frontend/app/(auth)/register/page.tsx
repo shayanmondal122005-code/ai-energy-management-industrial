@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { auth } from "@/lib/api"
@@ -26,7 +26,7 @@ function PasswordStrength({ password }: { password: string }) {
       <div className="grid grid-cols-2 gap-x-4 gap-y-1">
         {checks.map(c => (
           <span key={c.label} className={`text-[10px] font-mono flex items-center gap-1 ${c.pass ? "text-green-400" : "text-muted"}`}>
-            <span>{c.pass ? "✓" : "○"}</span> {c.label}
+            <span>{c.pass ? "âœ“" : "â—‹"}</span> {c.label}
           </span>
         ))}
       </div>
@@ -72,7 +72,7 @@ export default function RegisterPage() {
 
         {success ? (
           <div className="bg-panel border border-green-500/30 rounded-xl p-8 text-center space-y-3">
-            <div className="text-green-400 text-3xl">✓</div>
+            <div className="text-green-400 text-3xl">âœ“</div>
             <p className="text-white font-semibold">Account created!</p>
             <p className="text-sm text-muted">Redirecting to sign in...</p>
           </div>
@@ -153,9 +153,10 @@ export default function RegisterPage() {
         </p>
 
         <p className="text-center font-mono text-[10px] text-muted mt-3">
-          MicroGrid AI v2.0 · India-native · IEC 61850
+          MicroGrid AI v2.0 Â· India-native Â· IEC 61850
         </p>
       </div>
     </div>
   )
 }
+
