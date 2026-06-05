@@ -23,7 +23,9 @@ _sessionmaker: Optional[async_sessionmaker] = None
 
 
 def _build_engine():
-    """Build the async engine, handling Supabase pooler usernames with dots."""
+    """Build the async engine. Handles dotted usernames and SSL (Neon/Supabase)."""
+    from urllib.parse import parse_qs
+
     raw_url = settings.database_url
     if not raw_url:
         raise RuntimeError("DATABASE_URL is not set")
@@ -34,8 +36,21 @@ def _build_engine():
     host = parsed.hostname or "localhost"
     port = parsed.port or 5432
     database = parsed.path.lstrip("/") or "postgres"
+    query = parse_qs(parsed.query)
 
-    logger.info("Creating database engine for: %s:%s/%s (user=%s)", host, port, database, username)
+    connect_args = {
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    }
+
+    # asyncpg doesn't read ?sslmode= from the URL — pass ssl explicitly.
+    # Neon and Supabase both require SSL. Default to require for non-local hosts.
+    sslmode = query.get("sslmode", [None])[0]
+    if sslmode in ("require", "verify-ca", "verify-full") or (host not in ("localhost", "127.0.0.1") and sslmode is None):
+        connect_args["ssl"] = "require"
+
+    logger.info("Creating database engine for: %s:%s/%s (user=%s, ssl=%s)",
+                host, port, database, username, connect_args.get("ssl", "off"))
 
     sa_url = URL.create(
         drivername="postgresql+asyncpg",
@@ -52,10 +67,7 @@ def _build_engine():
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,
         echo=settings.debug,
-        connect_args={
-            "statement_cache_size": 0,
-            "prepared_statement_cache_size": 0,
-        },
+        connect_args=connect_args,
     )
 
 
