@@ -76,7 +76,7 @@ export default function OptimizePage() {
         <div>
           <h1 className="text-xl font-bold text-white">Economic Dispatch Optimizer</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            Linear Programming Â· 24h ahead Â· Cost minimization Â· No-power-cut guarantee
+            Linear Programming · 24h ahead · Cost minimization · No-power-cut guarantee
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -92,7 +92,7 @@ export default function OptimizePage() {
               status === "fallback"  ? "text-amber-400  border-amber-400/30  bg-amber-400/10" :
               "text-muted border-border"
             }`}>
-              {status === "optimal" ? "âœ“ LP OPTIMAL" : status === "fallback" ? "âš  RULE FALLBACK" : ""}
+              {status === "optimal" ? "✓ LP OPTIMAL" : status === "fallback" ? "⚠ RULE FALLBACK" : ""}
             </span>
           )}
         </div>
@@ -100,7 +100,7 @@ export default function OptimizePage() {
 
       {isLoading && (
         <div className="text-muted text-sm py-12 text-center border border-border rounded-xl">
-          Running LP optimizer â€” solving 97 variables...
+          Running LP optimizer — solving 97 variables...
         </div>
       )}
       {error && (
@@ -115,19 +115,19 @@ export default function OptimizePage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <MetricCard
               label="Today's Saving"
-              value={`â‚¹${savings.toLocaleString("en-IN")}`}
+              value={`₹${savings.toLocaleString("en-IN")}`}
               color="green"
               sub="vs no optimization"
             />
             <MetricCard
               label="Optimized Cost"
-              value={`â‚¹${data.cost_optimized?.toLocaleString("en-IN")}`}
+              value={`₹${data.cost_optimized?.toLocaleString("en-IN")}`}
               color="blue"
               sub="total grid import"
             />
             <MetricCard
               label="Baseline Cost"
-              value={`â‚¹${data.cost_baseline?.toLocaleString("en-IN")}`}
+              value={`₹${data.cost_baseline?.toLocaleString("en-IN")}`}
               color="purple"
               sub="without optimizer"
             />
@@ -135,27 +135,27 @@ export default function OptimizePage() {
               label="Min SoC"
               value={`${minSoc?.toFixed(0)}%`}
               color={powerCut ? "red" : minSoc < 25 ? "amber" : "green"}
-              sub={powerCut ? "âš  Power cut risk!" : "No power cut risk"}
+              sub={powerCut ? "⚠ Power cut risk!" : "No power cut risk"}
             />
           </div>
 
           {/* Power cut guarantee banner */}
           {!powerCut && (
             <div className="flex items-center gap-3 bg-emerald-500/7 border border-emerald-500/20 rounded-xl px-5 py-3">
-              <span className="text-emerald-400 text-lg">âœ“</span>
+              <span className="text-emerald-400 text-lg">✓</span>
               <div>
                 <p className="text-emerald-400 text-sm font-medium">Power cut mathematically guaranteed not to happen</p>
                 <p className="text-emerald-400/60 text-xs font-mono">
-                  Minimum SoC stays at {minSoc?.toFixed(0)}% â€” LP constraint enforces SoC â‰¥ 10% for all 24 hours
+                  Minimum SoC stays at {minSoc?.toFixed(0)}% — LP constraint enforces SoC ≥ 10% for all 24 hours
                 </p>
               </div>
             </div>
           )}
           {powerCut && (
             <div className="flex items-center gap-3 bg-red-500/7 border border-red-500/20 rounded-xl px-5 py-3">
-              <span className="text-red-400 text-lg">âš </span>
+              <span className="text-red-400 text-lg">⚠</span>
               <div>
-                <p className="text-red-400 text-sm font-medium">Power cut risk detected â€” battery too small for today's load</p>
+                <p className="text-red-400 text-sm font-medium">Power cut risk detected — battery too small for today's load</p>
                 <p className="text-red-400/60 text-xs font-mono">
                   Grid import will cover the gap but load shedding may be required
                 </p>
@@ -165,12 +165,12 @@ export default function OptimizePage() {
 
           {/* Battery action chart */}
           <div>
-            <p className="sec-label">Optimal Battery Schedule â€” 24 Hours</p>
+            <p className="sec-label">Optimal Battery Schedule — 24 Hours</p>
             <div className="bg-panel border border-border rounded-xl p-4">
               <div className="flex gap-4 mb-3 text-xs font-mono">
-                <span className="text-emerald-400">â— Charge (cheap solar/grid)</span>
-                <span className="text-amber-400">â— Discharge (peak saving)</span>
-                <span className="text-blue-400">â— Hold</span>
+                <span className="text-emerald-400">● Charge (cheap solar/grid)</span>
+                <span className="text-amber-400">● Discharge (peak saving)</span>
+                <span className="text-blue-400">● Hold</span>
               </div>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={chartData}>
@@ -194,7 +194,7 @@ export default function OptimizePage() {
 
           {/* SoC trace */}
           <div>
-            <p className="sec-label">Battery SoC â€” Guaranteed Safe All Day</p>
+            <p className="sec-label">Battery SoC — Guaranteed Safe All Day</p>
             <div className="bg-panel border border-border rounded-xl p-4">
               <div className="flex gap-1 items-end h-20">
                 {data.soc_trace?.slice(0, 24).map((soc: number, i: number) => (
@@ -202,16 +202,16 @@ export default function OptimizePage() {
                     <div
                       className={`w-full rounded-sm ${soc <= 20 ? "bg-red-500" : soc <= 35 ? "bg-amber-500" : "bg-emerald-500"}`}
                       style={{ height: `${soc}%` }}
-                      title={`${i}:00 â†’ ${soc}%`}
+                      title={`${i}:00 → ${soc}%`}
                     />
                     {i % 6 === 0 && <span className="font-mono text-[8px] text-muted">{i}:00</span>}
                   </div>
                 ))}
               </div>
               <div className="flex gap-6 mt-2 font-mono text-[9px]">
-                <span className="text-red-400">â–  Critical &lt;20%</span>
-                <span className="text-amber-400">â–  Warning &lt;35%</span>
-                <span className="text-emerald-400">â–  Safe</span>
+                <span className="text-red-400">■ Critical &lt;20%</span>
+                <span className="text-amber-400">■ Warning &lt;35%</span>
+                <span className="text-emerald-400">■ Safe</span>
               </div>
             </div>
           </div>
@@ -224,7 +224,7 @@ export default function OptimizePage() {
                 <table className="w-full text-xs font-mono">
                   <thead className="border-b border-border">
                     <tr className="text-muted tracking-widest uppercase text-[9px]">
-                      {["Hour", "Action", "Load", "Solar", "Grid", "Charge", "Discharge", "SoC", "â‚¹/kWh", "Cost â‚¹"].map(h => (
+                      {["Hour", "Action", "Load", "Solar", "Grid", "Charge", "Discharge", "SoC", "₹/kWh", "Cost ₹"].map(h => (
                         <th key={h} className="text-right first:text-left px-3 py-2">{h}</th>
                       ))}
                     </tr>
@@ -239,8 +239,8 @@ export default function OptimizePage() {
                         <td className="px-3 py-2 text-right text-muted">{r.load_kw}</td>
                         <td className="px-3 py-2 text-right text-amber-400">{r.solar_kw}</td>
                         <td className="px-3 py-2 text-right text-purple-400">{r.grid_kw}</td>
-                        <td className="px-3 py-2 text-right text-emerald-400">{r.charge_kw || "â€”"}</td>
-                        <td className="px-3 py-2 text-right text-amber-400">{r.discharge_kw || "â€”"}</td>
+                        <td className="px-3 py-2 text-right text-emerald-400">{r.charge_kw || "—"}</td>
+                        <td className="px-3 py-2 text-right text-amber-400">{r.discharge_kw || "—"}</td>
                         <td className="px-3 py-2 text-right" style={{ color: r.soc_pct <= 20 ? "#ef4444" : r.soc_pct <= 35 ? "#f59e0b" : "#10b981" }}>
                           {r.soc_pct}%
                         </td>
@@ -255,7 +255,7 @@ export default function OptimizePage() {
                     <tr>
                       <td colSpan={9} className="px-3 py-2 text-muted text-right">Total optimized cost</td>
                       <td className="px-3 py-2 text-right text-white font-bold">
-                        â‚¹{data.cost_optimized?.toLocaleString("en-IN")}
+                        ₹{data.cost_optimized?.toLocaleString("en-IN")}
                       </td>
                     </tr>
                   </tfoot>

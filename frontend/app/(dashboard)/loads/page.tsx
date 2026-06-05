@@ -37,7 +37,7 @@ export default function LoadsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Load Manager</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            P1â€“P5 Priority Ladder Â· IEC 61850 Â· Life Safety Protected
+            P1–P5 Priority Ladder · IEC 61850 · Life Safety Protected
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
@@ -79,7 +79,7 @@ export default function LoadsPage() {
               "text-muted border-border"
             }`}>P{priority}</span>
             <span className="text-sm text-muted">{PRIORITY_LABEL[priority]}</span>
-            {priority === 1 && <span className="text-xs text-red-400 font-mono">ðŸ”’ CANNOT BE SHED</span>}
+            {priority === 1 && <span className="text-xs text-red-400 font-mono">🔒 CANNOT BE SHED</span>}
           </div>
           <div className="bg-panel border border-border rounded-xl overflow-hidden">
             <table className="w-full text-sm">
@@ -90,7 +90,7 @@ export default function LoadsPage() {
                     <td className="px-4 py-3 font-mono text-muted text-right">{load.rated_kw} kW</td>
                     <td className="px-4 py-3 text-right">
                       <span className={`text-xs font-mono ${load.is_on ? "text-emerald-400" : "text-red-400"}`}>
-                        {load.is_on ? "â— ON" : "â—‹ OFF"}
+                        {load.is_on ? "● ON" : "○ OFF"}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-muted text-right">{load.contactor_id}</td>

@@ -39,7 +39,7 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Alerts</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            Real-time Â· WhatsApp delivery Â· Full history
+            Real-time · WhatsApp delivery · Full history
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (

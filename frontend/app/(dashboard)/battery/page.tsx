@@ -27,7 +27,7 @@ export default function BatteryPage() {
         <div>
           <h1 className="text-xl font-bold text-white">Battery Monitor</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            Coulomb counting Â· Arrhenius degradation Â· SoH tracking
+            Coulomb counting · Arrhenius degradation · SoH tracking
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
@@ -41,7 +41,7 @@ export default function BatteryPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="State of Charge" value={`${soc.toFixed(0)}%`}                              color={socColor} sub={soc >= 35 ? "Healthy" : soc >= 20 ? "Warning" : "Critical"} />
         <MetricCard label="Capacity"        value={`${facility?.battery_kwh ?? "--"} kWh`}            color="blue"    />
-        <MetricCard label="Temperature"     value={`${live?.battery_temp?.toFixed(1) ?? "--"}Â°C`}     color="amber"   />
+        <MetricCard label="Temperature"     value={`${live?.battery_temp?.toFixed(1) ?? "--"}°C`}     color="amber"   />
         <MetricCard label="Net Power"       value={`${(live?.net_kw ?? 0) > 0 ? "+" : ""}${(live?.net_kw ?? 0).toFixed(0)} kW`} color={(live?.net_kw ?? 0) >= 0 ? "green" : "red"} sub={(live?.net_kw ?? 0) >= 0 ? "Charging" : "Discharging"} />
       </div>
 
@@ -61,8 +61,8 @@ export default function BatteryPage() {
         </div>
         <div className="flex justify-between font-mono text-[9px] text-muted mt-2">
           <span>0%</span>
-          <span className="text-red-400">â—† 20% Critical</span>
-          <span className="text-amber-400">â—† 35% Warning</span>
+          <span className="text-red-400">◆ 20% Critical</span>
+          <span className="text-amber-400">◆ 35% Warning</span>
           <span>100%</span>
         </div>
       </div>
@@ -72,7 +72,7 @@ export default function BatteryPage() {
         <div className="grid grid-cols-2 gap-3 text-sm">
           {[
             { k: "Coulomb Counting",     v: "Integrates power flow over time to track SoC" },
-            { k: "Arrhenius Correction", v: "Capacity reduces 0.5%/Â°C above 25Â°C" },
+            { k: "Arrhenius Correction", v: "Capacity reduces 0.5%/°C above 25°C" },
             { k: "Charge Efficiency",    v: "95% round-trip (some energy lost as heat)" },
             { k: "Degradation Model",    v: "Capacity decreases each discharge cycle" },
           ].map(({ k, v }) => (

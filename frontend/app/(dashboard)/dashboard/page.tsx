@@ -46,7 +46,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl font-bold text-white">{facility?.name ?? "Loading..."}</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            {facility?.city} Â· {facility?.state_tariff} Â· {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+            {facility?.city} · {facility?.state_tariff} · {new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -68,12 +68,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Safety watchdog banner â€” shows on every page, always visible */}
+      {/* Safety watchdog banner — shows on every page, always visible */}
       {facilityId && <SafetyBanner facilityId={facilityId} />}
 
       {/* Metric row */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <MetricCard label="Battery SoC"  value={`${live?.battery_soc?.toFixed(0) ?? "--"}%`}  color="green"  sub={live ? (live.net_kw >= 0 ? "â†‘ Charging" : "â†“ Draining") : ""} />
+        <MetricCard label="Battery SoC"  value={`${live?.battery_soc?.toFixed(0) ?? "--"}%`}  color="green"  sub={live ? (live.net_kw >= 0 ? "↑ Charging" : "↓ Draining") : ""} />
         <MetricCard label="Load Now"     value={`${live?.load_kw?.toFixed(0) ?? "--"} kW`}    color="red"    />
         <MetricCard label="Solar Now"    value={`${live?.solar_kw?.toFixed(0) ?? "--"} kW`}   color="amber"  />
         <MetricCard label="Grid Import"  value={`${live?.grid_kw?.toFixed(0) ?? "--"} kW`}    color="purple" />
@@ -87,7 +87,7 @@ export default function DashboardPage() {
         <div className="space-y-2">
           {!alertList?.length && (
             <div className="text-sm text-muted py-6 text-center border border-border rounded-xl">
-              No alerts â€” all systems normal
+              No alerts — all systems normal
             </div>
           )}
           {alertList?.slice(0, 8).map(a => (

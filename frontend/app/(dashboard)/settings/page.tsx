@@ -15,7 +15,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-bold text-white">Settings</h1>
         <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-          Facility config Â· Tariff Â· Notifications
+          Facility config · Tariff · Notifications
         </p>
       </div>
 
@@ -61,7 +61,7 @@ export default function SettingsPage() {
         <p className="sec-label !mt-0">API Access</p>
         <p className="text-sm text-muted">Use API keys to connect IoT gateways and feeders.</p>
         <div className="bg-bg border border-border rounded-lg px-4 py-3 font-mono text-xs text-muted">
-          Facility ID: {facilityId || "â€”"}
+          Facility ID: {facilityId || "—"}
         </div>
         <button className="px-5 py-2.5 border border-border text-muted hover:text-white rounded-lg text-sm transition-colors">
           Generate API Key

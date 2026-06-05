@@ -10,7 +10,7 @@ export default function AdminPage() {
       <div>
         <h1 className="text-xl font-bold text-white">Admin</h1>
         <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-          Multi-tenant Â· User management Â· Super admin only
+          Multi-tenant · User management · Super admin only
         </p>
       </div>
 
@@ -20,10 +20,10 @@ export default function AdminPage() {
           <div key={f.id} className="flex items-center justify-between py-3 border-b border-border/50 last:border-0">
             <div>
               <p className="text-white text-sm font-medium">{f.name}</p>
-              <p className="font-mono text-[10px] text-muted">{f.city} Â· {f.state_tariff}</p>
+              <p className="font-mono text-[10px] text-muted">{f.city} · {f.state_tariff}</p>
             </div>
             <div className="text-right font-mono text-xs text-muted">
-              <p>{f.battery_kwh} kWh Â· {f.solar_kw} kW</p>
+              <p>{f.battery_kwh} kWh · {f.solar_kw} kW</p>
               <p className={f.is_active ? "text-emerald-400" : "text-red-400"}>
                 {f.is_active ? "Active" : "Inactive"}
               </p>

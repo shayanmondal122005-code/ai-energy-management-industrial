@@ -47,7 +47,7 @@ export default function ForecastPage() {
         <div>
           <h1 className="text-xl font-bold text-white">AI Forecast</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            XGBoost Â· 24-hour ahead Â· Confidence bands
+            XGBoost · 24-hour ahead · Confidence bands
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
@@ -68,13 +68,13 @@ export default function ForecastPage() {
       )}
 
       {isLoading && <div className="text-muted text-sm py-12 text-center">Generating forecast...</div>}
-      {error    && <div className="text-red-400 text-sm py-4 text-center">Forecast unavailable â€” need 48+ hours of readings</div>}
+      {error    && <div className="text-red-400 text-sm py-4 text-center">Forecast unavailable — need 48+ hours of readings</div>}
 
       {/* Load + Solar chart */}
       {chartData.length > 0 && (
         <>
           <div>
-            <p className="sec-label">Load vs Solar Forecast â€” Next 24 Hours</p>
+            <p className="sec-label">Load vs Solar Forecast — Next 24 Hours</p>
             <div className="bg-panel border border-border rounded-xl p-4">
               <ResponsiveContainer width="100%" height={280}>
                 <AreaChart data={chartData}>
