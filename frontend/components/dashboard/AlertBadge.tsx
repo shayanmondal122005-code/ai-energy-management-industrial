@@ -20,8 +20,8 @@ export function AlertBadge({ severity, type, message, createdAt }: AlertBadgePro
     <div className={`border border-l-[3px] rounded-lg px-4 py-3 text-sm ${STYLE[s] ?? STYLE.info}`}>
       <div className="flex items-center gap-2 mb-1">
         <span>{ICON[s] ?? "⚪"}</span>
-        <span className="font-mono text-[10px] tracking-widest uppercase opacity-70">{type.replace(/_/g, " ")}</span>
-        <span className="ml-auto font-mono text-[9px] opacity-50">
+        <span className="font-mono text-xs tracking-wider uppercase">{type.replace(/_/g, " ")}</span>
+        <span className="ml-auto font-mono text-xs text-slate-400">
           {new Date(createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
         </span>
       </div>

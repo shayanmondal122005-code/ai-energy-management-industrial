@@ -12,8 +12,8 @@
     --input: 220 20% 10%;
     --primary: 217 91% 60%;
     --primary-foreground: 222 47% 11%;
-    --muted: 220 20% 12%;
-    --muted-foreground: 215 20% 65%;
+    --muted: 220 20% 16%;
+    --muted-foreground: 215 25% 72%;
     --accent: 160 84% 39%;
     --destructive: 0 84% 60%;
     --radius: 0.5rem;
@@ -44,3 +44,32 @@
 .status-live   { @apply text-emerald-400 bg-emerald-400/10 border border-emerald-400/30; }
 .status-demo   { @apply text-amber-400  bg-amber-400/10  border border-amber-400/30; }
 .status-offline { @apply text-red-400   bg-red-400/10    border border-red-400/30; }
+
+/* ── Readability fixes ───────────────────────────────────── */
+/* Boost all tiny mono labels — 9px/10px → readable minimums */
+.font-mono { font-size: max(0.7rem, 1em); }
+
+/* Page subtitle lines under headings */
+.page-sub {
+  @apply text-xs text-slate-400 tracking-wide uppercase mt-0.5;
+}
+
+/* Table headers always visible */
+thead tr th, thead tr td {
+  @apply text-slate-300 !important;
+}
+
+/* Table body secondary text */
+tbody td.text-muted {
+  @apply text-slate-400 !important;
+}
+
+/* Labels inside forms */
+label.font-mono {
+  @apply text-slate-300 text-xs !important;
+}
+
+/* Loading / empty state text */
+.empty-state {
+  @apply text-slate-400 text-sm py-12 text-center border border-border rounded-xl;
+}
