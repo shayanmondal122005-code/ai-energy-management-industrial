@@ -3,6 +3,7 @@ from typing import AsyncGenerator, Optional
 from urllib.parse import urlparse
 
 from sqlalchemy import text
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -34,11 +35,16 @@ def _build_engine():
     port = parsed.port or 5432
     database = parsed.path.lstrip("/") or "postgres"
 
-    # Build SQLAlchemy URL with explicit user/password to avoid dot-parsing issues.
-    # asyncpg connect_args override whatever SQLAlchemy parses from the URL.
-    sa_url = f"postgresql+asyncpg://x:x@{host}:{port}/{database}"
-
     logger.info("Creating database engine for: %s:%s/%s (user=%s)", host, port, database, username)
+
+    sa_url = URL.create(
+        drivername="postgresql+asyncpg",
+        username=username,
+        password=password,
+        host=host,
+        port=port,
+        database=database,
+    )
 
     return create_async_engine(
         sa_url,
@@ -47,8 +53,6 @@ def _build_engine():
         pool_pre_ping=True,
         echo=settings.debug,
         connect_args={
-            "user": username,
-            "password": password,
             "statement_cache_size": 0,
             "prepared_statement_cache_size": 0,
         },
