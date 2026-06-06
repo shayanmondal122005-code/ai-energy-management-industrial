@@ -72,50 +72,40 @@ class ReadingsRepository:
 
     async def get_solar_generation(self, facility_id: UUID) -> SolarGenerationResponse:
         """Solar energy (kWh) = average power × time span, per window.
-        Robust to irregular sampling (hourly seed + 2-min live)."""
+        Single round-trip using conditional aggregates (FILTER) — fast over WAN."""
         now_ist     = datetime.now(IST)
         now_utc     = datetime.now(timezone.utc)
         day_start   = now_ist.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
         month_start = now_ist.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
-        async def energy_since(since_utc) -> float:
-            res = await self.db.execute(
-                select(
-                    func.avg(Reading.solar_kw),
-                    func.min(Reading.timestamp),
-                    func.max(Reading.timestamp),
-                    func.count(),
-                ).where(Reading.facility_id == facility_id, Reading.timestamp >= since_utc)
-            )
-            avg, mn, mx, cnt = res.one()
-            if not cnt or avg is None or mn is None or mx is None:
+        row = (await self.db.execute(
+            text("""
+                SELECT
+                  AVG(solar_kw) FILTER (WHERE timestamp >= :day)   AS day_avg,
+                  MIN(timestamp) FILTER (WHERE timestamp >= :day)  AS day_min,
+                  MAX(timestamp) FILTER (WHERE timestamp >= :day)  AS day_max,
+                  MAX(solar_kw) FILTER (WHERE timestamp >= :day)   AS day_peak,
+                  AVG(solar_kw) FILTER (WHERE timestamp >= :month) AS mon_avg,
+                  MIN(timestamp) FILTER (WHERE timestamp >= :month) AS mon_min,
+                  MAX(timestamp) FILTER (WHERE timestamp >= :month) AS mon_max,
+                  AVG(solar_kw) AS all_avg,
+                  MIN(timestamp) AS all_min,
+                  MAX(timestamp) AS all_max
+                FROM readings
+                WHERE facility_id = :fid
+            """),
+            {"fid": str(facility_id), "day": day_start, "month": month_start},
+        )).one()
+
+        def energy(avg, mn, mx) -> float:
+            if avg is None or mn is None or mx is None:
                 return 0.0
-            span_h = (mx - mn).total_seconds() / 3600
-            return float(avg) * span_h
+            return float(avg) * ((mx - mn).total_seconds() / 3600)
 
-        today_kwh = await energy_since(day_start)
-        month_kwh = await energy_since(month_start)
-
-        # lifetime
-        res = await self.db.execute(
-            select(
-                func.avg(Reading.solar_kw),
-                func.min(Reading.timestamp),
-                func.max(Reading.timestamp),
-                func.count(),
-            ).where(Reading.facility_id == facility_id)
-        )
-        avg_all, mn_all, mx_all, cnt_all = res.one()
-        total_kwh = 0.0
-        if cnt_all and avg_all is not None and mn_all and mx_all:
-            total_kwh = float(avg_all) * ((mx_all - mn_all).total_seconds() / 3600)
-
-        # peak instantaneous today
-        res2 = await self.db.execute(
-            select(func.max(Reading.solar_kw))
-            .where(Reading.facility_id == facility_id, Reading.timestamp >= day_start)
-        )
-        peak_today = float(res2.scalar() or 0)
+        today_kwh = energy(row.day_avg, row.day_min, row.day_max)
+        month_kwh = energy(row.mon_avg, row.mon_min, row.mon_max)
+        total_kwh = energy(row.all_avg, row.all_min, row.all_max)
+        peak_today = float(row.day_peak or 0)
 
         return SolarGenerationResponse(
             facility_id=facility_id,
