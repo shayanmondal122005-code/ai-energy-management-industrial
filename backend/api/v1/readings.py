@@ -13,7 +13,10 @@ from backend.core.rate_limit import limiter
 from backend.core.security import CurrentUser, get_current_user
 from backend.models.schemas import IngestResponse, LiveResponse, ReadingIngest, SolarGenerationResponse, StatsResponse
 from backend.repositories.readings_repo import ReadingsRepository
-from backend.core.cache import cache_get, cache_set, cache_delete, key_history_csv
+from backend.core.cache import (
+    cache_get, cache_set, cache_delete,
+    key_history_csv, key_live, key_solar_generation,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,9 +38,11 @@ async def ingest(
     repo  = ReadingsRepository(db)
     count = await repo.insert(facility_id, payload)
 
-    # Invalidate history cache on every new reading
+    # Invalidate caches that a new reading makes stale
     await cache_delete(key_history_csv(str(facility_id), 600))
     await cache_delete(key_history_csv(str(facility_id), 500))
+    await cache_delete(key_live(str(facility_id)))
+    await cache_delete(key_solar_generation(str(facility_id)))
 
     return IngestResponse(status="received", records=count, facility_id=facility_id)
 
@@ -52,6 +57,11 @@ async def live(
     if not current_user.can_access_facility(facility_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    cache_key = key_live(str(facility_id))
+    cached    = await cache_get(cache_key)
+    if cached:
+        return LiveResponse(**cached)
+
     repo    = ReadingsRepository(db)
     reading = await repo.get_latest(facility_id)
 
@@ -61,7 +71,7 @@ async def live(
             load_kw=0, solar_kw=0, battery_soc=0, battery_temp=28,
             grid_kw=0, net_kw=0, source="none",
         )
-    return LiveResponse(
+    result = LiveResponse(
         status="ok",
         timestamp=reading.timestamp,
         load_kw=reading.load_kw,
@@ -72,6 +82,9 @@ async def live(
         net_kw=reading.net_kw or 0,
         source=reading.source,
     )
+    # short TTL — feeder posts every couple minutes; invalidated on ingest anyway
+    await cache_set(cache_key, result.model_dump(mode="json"), ttl_seconds=15)
+    return result
 
 
 @router.get("/{facility_id}/history/csv")
@@ -116,8 +129,16 @@ async def solar_generation(
     """Daily / monthly / lifetime solar energy generated (kWh) — for ROI tracking."""
     if not current_user.can_access_facility(facility_id):
         raise HTTPException(status_code=403, detail="Access denied")
-    repo = ReadingsRepository(db)
-    return await repo.get_solar_generation(facility_id)
+
+    cache_key = key_solar_generation(str(facility_id))
+    cached    = await cache_get(cache_key)
+    if cached:
+        return SolarGenerationResponse(**cached)
+
+    repo   = ReadingsRepository(db)
+    result = await repo.get_solar_generation(facility_id)
+    await cache_set(cache_key, result.model_dump(mode="json"), ttl_seconds=45)
+    return result
 
 
 @router.get("/{facility_id}/stats", response_model=StatsResponse)

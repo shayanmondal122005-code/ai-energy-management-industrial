@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.core.cache import cache_delete, cache_get, cache_set, key_grid_state
+from backend.core.cache import cache_delete, cache_get, cache_set, key_grid_state, key_loads
 from backend.core.database import get_db
 from backend.core.rate_limit import limiter
 from backend.core.security import CurrentUser, get_current_user
@@ -150,6 +150,7 @@ async def confirm_command(
     result = await repo.confirm_and_execute(payload.command_id, current_user.user_id)
 
     await cache_delete(key_grid_state(str(facility_id)))
+    await cache_delete(key_loads(str(facility_id)))
 
     logger.info("COMMAND_EXECUTED command=%s type=%s result=%s user=%s",
                 payload.command_id, result.type, result.result, current_user.user_id)
@@ -171,8 +172,17 @@ async def get_loads(
 ):
     if not current_user.can_access_facility(facility_id):
         raise HTTPException(status_code=403, detail="Access denied")
-    repo = GridRepository(db)
-    return await repo.get_loads(facility_id)
+
+    cache_key = key_loads(str(facility_id))
+    cached    = await cache_get(cache_key)
+    if cached is not None:
+        return [LoadConfigResponse(**l) for l in cached]
+
+    repo   = GridRepository(db)
+    rows   = await repo.get_loads(facility_id)
+    result = [LoadConfigResponse.model_validate(r) for r in rows]
+    await cache_set(cache_key, [r.model_dump(mode="json") for r in result], ttl_seconds=20)
+    return result
 
 
 @router.post("/{facility_id}/grid/loads/shed", response_model=CommandResponse)

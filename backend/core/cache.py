@@ -92,6 +92,22 @@ def key_grid_state(facility_id: str) -> str:
     return f"grid_state:{facility_id}"
 
 
+def key_live(facility_id: str) -> str:
+    return f"live:{facility_id}"
+
+
+def key_solar_generation(facility_id: str) -> str:
+    return f"solar_gen:{facility_id}"
+
+
+def key_loads(facility_id: str) -> str:
+    return f"loads:{facility_id}"
+
+
+def key_facilities(tenant_id: str) -> str:
+    return f"facilities:{tenant_id}"
+
+
 def key_weather(lat: float, lon: float) -> str:
     return f"weather:{lat:.2f}:{lon:.2f}"
 
