@@ -239,6 +239,16 @@ class StatsResponse(BaseModel):
     data_to: Optional[datetime]
 
 
+class SolarGenerationResponse(BaseModel):
+    facility_id: UUID
+    today_kwh: float          # solar energy generated since midnight IST
+    month_kwh: float          # since 1st of month IST
+    total_kwh: float          # lifetime in stored data
+    peak_today_kw: float      # highest instantaneous solar today
+    co2_avoided_today_kg: float
+    updated_at: datetime
+
+
 # ── Health ──────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):

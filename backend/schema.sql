@@ -157,3 +157,13 @@ CREATE TABLE IF NOT EXISTS reports (
   generated_at TIMESTAMPTZ,
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Hourly aggregation view used by the dashboard trend charts
+CREATE OR REPLACE VIEW readings_hourly AS
+SELECT facility_id,
+       date_trunc('hour', timestamp) AS hour,
+       AVG(load_kw)     AS load_kw_avg,
+       AVG(solar_kw)    AS solar_kw_avg,
+       AVG(battery_soc) AS battery_soc_avg
+FROM readings
+GROUP BY facility_id, date_trunc('hour', timestamp);

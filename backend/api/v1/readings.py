@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.core.database import get_db
 from backend.core.rate_limit import limiter
 from backend.core.security import CurrentUser, get_current_user
-from backend.models.schemas import IngestResponse, LiveResponse, ReadingIngest, StatsResponse
+from backend.models.schemas import IngestResponse, LiveResponse, ReadingIngest, SolarGenerationResponse, StatsResponse
 from backend.repositories.readings_repo import ReadingsRepository
 from backend.core.cache import cache_get, cache_set, cache_delete, key_history_csv
 
@@ -105,6 +105,19 @@ async def history_csv(
 
     await cache_set(cache_key, csv_str, ttl_seconds=120)
     return Response(csv_str, media_type="text/csv")
+
+
+@router.get("/{facility_id}/solar/generation", response_model=SolarGenerationResponse)
+async def solar_generation(
+    facility_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Daily / monthly / lifetime solar energy generated (kWh) — for ROI tracking."""
+    if not current_user.can_access_facility(facility_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    repo = ReadingsRepository(db)
+    return await repo.get_solar_generation(facility_id)
 
 
 @router.get("/{facility_id}/stats", response_model=StatsResponse)

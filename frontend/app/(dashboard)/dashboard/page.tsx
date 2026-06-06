@@ -6,6 +6,8 @@ import { AlertBadge } from "@/components/dashboard/AlertBadge"
 import { SafetyBanner } from "@/components/dashboard/SafetyBanner"
 import { useLiveReadings, useLiveAlerts } from "@/lib/realtime"
 import { useEffect, useState } from "react"
+import { INDIA_TARIFFS, DEFAULT_TARIFF } from "@/types"
+import { Sun, Leaf } from "lucide-react"
 
 export default function DashboardPage() {
   const [facilityId, setFacilityId] = useState<string>("")
@@ -32,12 +34,28 @@ export default function DashboardPage() {
     enabled: !!facilityId,
   })
 
+  const { data: solarGen } = useQuery({
+    queryKey: ["solar-generation", facilityId],
+    queryFn: () => readings.solarGeneration(facilityId),
+    enabled: !!facilityId,
+    refetchInterval: 60_000,
+  })
+
   // Real-time updates via Supabase Realtime
   useLiveReadings(facilityId)
   useLiveAlerts(facilityId)
 
   const facility = facilityList?.find(f => f.id === facilityId)
   const isLive   = live?.status === "ok"
+
+  // ROI value of today's solar — energy generated × what grid power would have cost
+  const tariff      = INDIA_TARIFFS[facility?.state_tariff ?? ""] ?? DEFAULT_TARIFF
+  const todayKwh    = solarGen?.today_kwh ?? 0
+  const monthKwh    = solarGen?.month_kwh ?? 0
+  const totalKwh    = solarGen?.total_kwh ?? 0
+  const todaySaved  = todayKwh * tariff.normal
+  const monthSaved  = monthKwh * tariff.normal
+  const co2Today    = solarGen?.co2_avoided_today_kg ?? 0
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -70,6 +88,54 @@ export default function DashboardPage() {
 
       {/* Safety watchdog banner — shows on every page, always visible */}
       {facilityId && <SafetyBanner facilityId={facilityId} />}
+
+      {/* ── Solar generation hero (ROI) ─────────────────────── */}
+      <div className="relative overflow-hidden rounded-2xl border border-amber-500/25 bg-gradient-to-br from-amber-500/10 via-panel to-panel p-6">
+        <div className="absolute -right-8 -top-8 text-amber-500/10">
+          <Sun size={160} strokeWidth={1} />
+        </div>
+        <div className="relative flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Sun size={16} className="text-amber-400" />
+              <p className="font-mono text-[11px] tracking-[3px] uppercase text-amber-400 font-semibold">
+                Solar Generated Today
+              </p>
+            </div>
+            <div className="flex items-baseline gap-3">
+              <span className="text-5xl font-bold text-white tracking-tight">
+                {todayKwh.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+              </span>
+              <span className="text-xl text-amber-300 font-semibold">kWh</span>
+            </div>
+            <p className="text-sm text-emerald-400 font-semibold mt-1">
+              ≈ ₹{todaySaved.toLocaleString("en-IN", { maximumFractionDigits: 0 })} saved today
+              <span className="text-slate-400 font-normal"> · peak {solarGen?.peak_today_kw ?? 0} kW</span>
+            </p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-5 md:gap-7">
+            <div>
+              <p className="font-mono text-[10px] tracking-[2px] uppercase text-slate-400 mb-1">This Month</p>
+              <p className="text-lg font-bold text-white">{monthKwh.toLocaleString("en-IN", { maximumFractionDigits: 0 })} <span className="text-xs text-slate-400">kWh</span></p>
+              <p className="text-xs text-emerald-400">₹{monthSaved.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] tracking-[2px] uppercase text-slate-400 mb-1">Lifetime</p>
+              <p className="text-lg font-bold text-white">{(totalKwh / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })} <span className="text-xs text-slate-400">MWh</span></p>
+              <p className="text-xs text-slate-400">total output</p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] tracking-[2px] uppercase text-slate-400 mb-1">CO₂ Avoided</p>
+              <p className="text-lg font-bold text-white flex items-center gap-1">
+                <Leaf size={14} className="text-emerald-400" />
+                {co2Today.toLocaleString("en-IN", { maximumFractionDigits: 0 })} <span className="text-xs text-slate-400">kg</span>
+              </p>
+              <p className="text-xs text-slate-400">today</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Metric row */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">

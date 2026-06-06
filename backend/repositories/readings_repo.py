@@ -6,7 +6,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.database import Reading
-from backend.models.schemas import IngestResponse, ReadingIngest, StatsResponse
+from backend.models.schemas import IngestResponse, ReadingIngest, SolarGenerationResponse, StatsResponse
+
+IST = timezone(timedelta(hours=5, minutes=30))
+GRID_CO2_KG_PER_KWH = 0.71  # India grid emission factor (CEA)
 
 
 class ReadingsRepository:
@@ -66,6 +69,63 @@ class ReadingsRepository:
             {"fid": str(facility_id), "since": since, "lim": hours},
         )
         return result.fetchall()
+
+    async def get_solar_generation(self, facility_id: UUID) -> SolarGenerationResponse:
+        """Solar energy (kWh) = average power × time span, per window.
+        Robust to irregular sampling (hourly seed + 2-min live)."""
+        now_ist     = datetime.now(IST)
+        now_utc     = datetime.now(timezone.utc)
+        day_start   = now_ist.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+        month_start = now_ist.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+        async def energy_since(since_utc) -> float:
+            res = await self.db.execute(
+                select(
+                    func.avg(Reading.solar_kw),
+                    func.min(Reading.timestamp),
+                    func.max(Reading.timestamp),
+                    func.count(),
+                ).where(Reading.facility_id == facility_id, Reading.timestamp >= since_utc)
+            )
+            avg, mn, mx, cnt = res.one()
+            if not cnt or avg is None or mn is None or mx is None:
+                return 0.0
+            span_h = (mx - mn).total_seconds() / 3600
+            return float(avg) * span_h
+
+        today_kwh = await energy_since(day_start)
+        month_kwh = await energy_since(month_start)
+
+        # lifetime
+        res = await self.db.execute(
+            select(
+                func.avg(Reading.solar_kw),
+                func.min(Reading.timestamp),
+                func.max(Reading.timestamp),
+                func.count(),
+            ).where(Reading.facility_id == facility_id)
+        )
+        avg_all, mn_all, mx_all, cnt_all = res.one()
+        total_kwh = 0.0
+        if cnt_all and avg_all is not None and mn_all and mx_all:
+            total_kwh = float(avg_all) * ((mx_all - mn_all).total_seconds() / 3600)
+
+        # peak instantaneous today
+        res2 = await self.db.execute(
+            select(func.max(Reading.solar_kw))
+            .where(Reading.facility_id == facility_id, Reading.timestamp >= day_start)
+        )
+        peak_today = float(res2.scalar() or 0)
+
+        return SolarGenerationResponse(
+            facility_id=facility_id,
+            today_kwh=round(today_kwh, 1),
+            month_kwh=round(month_kwh, 1),
+            total_kwh=round(total_kwh, 1),
+            peak_today_kw=round(peak_today, 1),
+            co2_avoided_today_kg=round(today_kwh * GRID_CO2_KG_PER_KWH, 1),
+            updated_at=now_utc,
+        )
 
     async def get_stats(self, facility_id: UUID) -> StatsResponse:
         result = await self.db.execute(

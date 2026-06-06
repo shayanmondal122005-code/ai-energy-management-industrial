@@ -110,6 +110,11 @@ export const readings = {
     request<{
       avg_load_kw: number; peak_load_kw: number; avg_solar_kw: number; total_readings: number;
     }>(`/facilities/${facilityId}/stats`),
+  solarGeneration: (facilityId: string) =>
+    request<{
+      facility_id: string; today_kwh: number; month_kwh: number; total_kwh: number;
+      peak_today_kw: number; co2_avoided_today_kg: number; updated_at: string;
+    }>(`/facilities/${facilityId}/solar/generation`),
 };
 
 // ── Alerts ───────────────────────────────────────────────────
