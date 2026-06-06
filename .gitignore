@@ -39,3 +39,10 @@ Thumbs.db
 *.joblib
 *.pkl
 model_*.json
+
+# Local live feeder (contains login password — never commit)
+live_feeder.js
+
+# Local report generator (contains DB string)
+daily_report.js
+daily_report.html
