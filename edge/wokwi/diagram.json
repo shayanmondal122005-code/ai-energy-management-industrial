@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "author": "Prakriti Energy AI",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-ssd1306", "id": "oled", "top": -120, "left": 200, "attrs": {} },
+
+    { "type": "wokwi-led", "id": "ledSolar",   "top": 50,  "left": 250, "attrs": { "color": "yellow" } },
+    { "type": "wokwi-led", "id": "ledBattery", "top": 100, "left": 250, "attrs": { "color": "green" } },
+    { "type": "wokwi-led", "id": "ledGrid",    "top": 150, "left": 250, "attrs": { "color": "blue" } },
+    { "type": "wokwi-led", "id": "ledDg",      "top": 200, "left": 250, "attrs": { "color": "red" } },
+    { "type": "wokwi-led", "id": "ledGc",      "top": 250, "left": 250, "attrs": { "color": "orange" } },
+
+    { "type": "wokwi-resistor", "id": "r1", "top": 50,  "left": 180, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r2", "top": 100, "left": 180, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r3", "top": 150, "left": 180, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r4", "top": 200, "left": 180, "attrs": { "value": "220" } },
+    { "type": "wokwi-resistor", "id": "r5", "top": 250, "left": 180, "attrs": { "value": "220" } }
+  ],
+  "connections": [
+    [ "esp:21", "oled:SDA", "green", [] ],
+    [ "esp:22", "oled:SCL", "yellow", [] ],
+    [ "esp:3V3", "oled:VCC", "red", [] ],
+    [ "esp:GND.1", "oled:GND", "black", [] ],
+
+    [ "esp:25", "r1:1", "yellow", [] ], [ "r1:2", "ledSolar:A", "yellow", [] ], [ "ledSolar:C", "esp:GND.2", "black", [] ],
+    [ "esp:26", "r2:1", "green",  [] ], [ "r2:2", "ledBattery:A", "green", [] ], [ "ledBattery:C", "esp:GND.2", "black", [] ],
+    [ "esp:27", "r3:1", "blue",   [] ], [ "r3:2", "ledGrid:A", "blue", [] ], [ "ledGrid:C", "esp:GND.2", "black", [] ],
+    [ "esp:14", "r4:1", "red",    [] ], [ "r4:2", "ledDg:A", "red", [] ], [ "ledDg:C", "esp:GND.2", "black", [] ],
+    [ "esp:33", "r5:1", "orange", [] ], [ "r5:2", "ledGc:A", "orange", [] ], [ "ledGc:C", "esp:GND.2", "black", [] ]
+  ]
+}
