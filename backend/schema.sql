@@ -158,6 +158,28 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Wokwi ESP32 simulation telemetry (Prakriti Energy edge bridge)
+CREATE TABLE IF NOT EXISTS telemetry (
+  id SERIAL PRIMARY KEY,
+  site_id TEXT NOT NULL,
+  ts BIGINT,
+  recorded_at TIMESTAMPTZ DEFAULT NOW(),
+  soc_pct FLOAT,
+  solar_w FLOAT,
+  total_load_w FLOAT,
+  grid_charge_active BOOLEAN,
+  grid_charge_w FLOAT,
+  charge_source TEXT,
+  tariff_period TEXT,
+  tariff_rs_kwh FLOAT,
+  grid_on BOOLEAN,
+  battery_on BOOLEAN,
+  solar_on BOOLEAN,
+  dg_on BOOLEAN,
+  circuits JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_site_ts ON telemetry(site_id, recorded_at DESC);
+
 -- Hourly aggregation view used by the dashboard trend charts
 CREATE OR REPLACE VIEW readings_hourly AS
 SELECT facility_id,
