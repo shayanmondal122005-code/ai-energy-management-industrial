@@ -158,6 +158,19 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Per-device API keys — each microcontroller gets its own site-scoped key.
+-- Stolen device → revoke ONE key, only ITS site affected, never others.
+CREATE TABLE IF NOT EXISTS device_keys (
+  id           TEXT PRIMARY KEY,          -- public key id
+  site_id      TEXT NOT NULL,
+  key_hash     TEXT NOT NULL,             -- bcrypt of the secret (plaintext never stored)
+  label        TEXT,
+  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  last_used_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_device_keys_site ON device_keys(site_id);
+
 -- Wokwi ESP32 simulation telemetry (Prakriti Energy edge bridge)
 CREATE TABLE IF NOT EXISTS telemetry (
   id SERIAL PRIMARY KEY,

@@ -1,30 +1,64 @@
 """
 Simulation / Edge bridge — endpoints for the Wokwi ESP32 (Prakriti Energy).
 
-POST /api/v1/ingest           — ESP32 posts telemetry (no auth). Saved to Postgres + Redis.
-GET  /api/v1/commands/latest  — ESP32 fetches relay command state (from Redis).
-POST /api/v1/commands         — dashboard sends relay commands (to Redis).
-GET  /api/v1/telemetry/latest — debug: last reading for a site (from Redis).
+All edge endpoints require a per-device API key:  Authorization: Bearer dk_<id>_<secret>
+The key is bound to one site_id — a stolen device can ONLY access its own site,
+never another customer's data, commands, or forecast. Keys are revocable.
 
-Unauthenticated by design — the ESP32 has no JWT. Separate from the production
-/facilities/{id}/ingest flow so the sim runs without a tenant/facility.
+Device provisioning (/devices) is admin-only, protected by your JWT login.
+The brain, data, and algorithm live server-side — the device holds only its key.
 """
 import json
+import secrets
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.cache import get_redis
 from backend.core.database import get_db
+from backend.core.security import CurrentUser, get_current_user, hash_api_key, verify_api_key
 from backend.services.forecast_service import get_load_forecast
 
 router = APIRouter()
 
 DEFAULT_SITE = "sim-hospital-01"
+
+
+# ── Per-device API-key auth ───────────────────────────────────────
+# Every edge endpoint requires  Authorization: Bearer dk_<id>_<secret>
+# and the key must belong to the site_id being accessed. A stolen device
+# key can ONLY touch its own site — never another customer's data.
+
+async def verify_device_key(authorization: Optional[str], site_id: str, db: AsyncSession) -> None:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing device API key",
+                            headers={"WWW-Authenticate": "Bearer"})
+    token = authorization[7:].strip()
+    parts = token.split("_")
+    if len(parts) != 3 or parts[0] != "dk":
+        raise HTTPException(status_code=401, detail="Malformed device API key")
+    key_id, secret = parts[1], parts[2]
+
+    row = (await db.execute(
+        text("SELECT site_id, key_hash, is_active FROM device_keys WHERE id = :id"),
+        {"id": key_id},
+    )).one_or_none()
+
+    if row is None or not row.is_active or not verify_api_key(secret, row.key_hash):
+        raise HTTPException(status_code=401, detail="Invalid or revoked device API key")
+    if row.site_id != site_id:
+        # Key is valid but for a DIFFERENT site → hard deny (no cross-tenant access)
+        raise HTTPException(status_code=403, detail="Key not authorized for this site")
+
+    # best-effort last-used stamp
+    try:
+        await db.execute(text("UPDATE device_keys SET last_used_at = now() WHERE id = :id"), {"id": key_id})
+    except Exception:
+        pass
 
 # Default relay state when no command has been set yet (all on, DG + grid-charge off)
 DEFAULT_COMMANDS = {
@@ -114,8 +148,9 @@ class RelayCommands(BaseModel):
 # ── Endpoints ─────────────────────────────────────────────────────
 
 @router.post("/ingest")
-async def sim_ingest(payload: SimTelemetry, db: AsyncSession = Depends(get_db)):
+async def sim_ingest(payload: SimTelemetry, request: Request, db: AsyncSession = Depends(get_db)):
     """Receive telemetry from ESP32 → persist to Postgres + cache latest in Redis."""
+    await verify_device_key(request.headers.get("authorization"), payload.site_id, db)
     circuits_json = json.dumps([c.model_dump() for c in payload.circuits])
 
     await db.execute(
@@ -163,8 +198,10 @@ async def sim_ingest(payload: SimTelemetry, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/commands/latest")
-async def get_commands(site_id: str = Query(default=DEFAULT_SITE)):
+async def get_commands(request: Request, site_id: str = Query(default=DEFAULT_SITE),
+                       db: AsyncSession = Depends(get_db)):
     """Return relay command state for the ESP32. Reads Redis commands:{site_id}."""
+    await verify_device_key(request.headers.get("authorization"), site_id, db)
     try:
         r = await get_redis()
         val = await r.get(f"commands:{site_id}")
@@ -176,9 +213,10 @@ async def get_commands(site_id: str = Query(default=DEFAULT_SITE)):
 
 
 @router.post("/commands")
-async def set_commands(cmd: RelayCommands):
+async def set_commands(cmd: RelayCommands, request: Request, db: AsyncSession = Depends(get_db)):
     """Dashboard → save relay commands to Redis commands:{site_id}."""
     site_id = cmd.site_id or DEFAULT_SITE
+    await verify_device_key(request.headers.get("authorization"), site_id, db)
     state = {
         "grid_relay":        cmd.grid_relay,
         "solar_relay":       cmd.solar_relay,
@@ -196,13 +234,15 @@ async def set_commands(cmd: RelayCommands):
 
 # Backward-compatible alias (old sketch used PUT)
 @router.put("/commands")
-async def set_commands_put(cmd: RelayCommands):
-    return await set_commands(cmd)
+async def set_commands_put(cmd: RelayCommands, request: Request, db: AsyncSession = Depends(get_db)):
+    return await set_commands(cmd, request, db)
 
 
 @router.get("/forecast")
-async def forecast(site_id: str = Query(default=DEFAULT_SITE), db: AsyncSession = Depends(get_db)):
+async def forecast(request: Request, site_id: str = Query(default=DEFAULT_SITE),
+                   db: AsyncSession = Depends(get_db)):
     """The brain's current load forecast for a site (drives predictive dispatch)."""
+    await verify_device_key(request.headers.get("authorization"), site_id, db)
     current_hour = None
     try:
         r = await get_redis()
@@ -215,8 +255,10 @@ async def forecast(site_id: str = Query(default=DEFAULT_SITE), db: AsyncSession 
 
 
 @router.get("/telemetry/latest")
-async def get_latest_telemetry(site_id: str = Query(default=DEFAULT_SITE)):
+async def get_latest_telemetry(request: Request, site_id: str = Query(default=DEFAULT_SITE),
+                               db: AsyncSession = Depends(get_db)):
     """Debug — last reading the ESP32 sent for a site."""
+    await verify_device_key(request.headers.get("authorization"), site_id, db)
     try:
         r = await get_redis()
         val = await r.get(f"latest:{site_id}")
@@ -225,3 +267,53 @@ async def get_latest_telemetry(site_id: str = Query(default=DEFAULT_SITE)):
     except Exception:
         pass
     return {"status": "no_data", "message": "No telemetry received yet"}
+
+
+# ── Device provisioning (admin only — protected by your JWT login) ────────
+
+class DeviceCreate(BaseModel):
+    site_id: str
+    label: Optional[str] = None
+
+
+@router.post("/devices", status_code=201)
+async def create_device(body: DeviceCreate, db: AsyncSession = Depends(get_db),
+                        current_user: CurrentUser = Depends(get_current_user)):
+    """Mint a new per-device API key for a site. Returns the key ONCE — store it now."""
+    current_user.require_admin()
+    key_id = secrets.token_hex(6)
+    secret = secrets.token_hex(24)
+    token  = f"dk_{key_id}_{secret}"
+    await db.execute(
+        text("""INSERT INTO device_keys (id, site_id, key_hash, label)
+                VALUES (:id, :site_id, :hash, :label)"""),
+        {"id": key_id, "site_id": body.site_id, "hash": hash_api_key(secret), "label": body.label},
+    )
+    return {
+        "key_id": key_id, "site_id": body.site_id,
+        "api_key": token,
+        "warning": "Store this now — it is not retrievable later.",
+    }
+
+
+@router.get("/devices")
+async def list_devices(site_id: Optional[str] = Query(default=None),
+                       db: AsyncSession = Depends(get_db),
+                       current_user: CurrentUser = Depends(get_current_user)):
+    current_user.require_admin()
+    if site_id:
+        rows = (await db.execute(
+            text("SELECT id, site_id, label, is_active, created_at, last_used_at FROM device_keys WHERE site_id=:s ORDER BY created_at DESC"),
+            {"s": site_id})).mappings().all()
+    else:
+        rows = (await db.execute(
+            text("SELECT id, site_id, label, is_active, created_at, last_used_at FROM device_keys ORDER BY created_at DESC"))).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@router.delete("/devices/{key_id}", status_code=204)
+async def revoke_device(key_id: str, db: AsyncSession = Depends(get_db),
+                        current_user: CurrentUser = Depends(get_current_user)):
+    """Revoke a device key (e.g. lost/stolen controller). Only its site is affected."""
+    current_user.require_admin()
+    await db.execute(text("UPDATE device_keys SET is_active=false WHERE id=:id"), {"id": key_id})

@@ -27,6 +27,8 @@ const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASS = "";
 const char* BASE_URL  = "https://ai-energy-management-industrial-production.up.railway.app";
 const char* SITE_ID   = "sim-hospital-01";
+// Per-device API key (mint with: POST /api/v1/devices). Bound to THIS site only.
+const char* DEVICE_KEY = "PASTE_YOUR_dk_KEY_HERE";
 
 // ── Pins ────────────────────────────────────────────────────────
 const int PIN_SOLAR       = 25;
@@ -221,6 +223,7 @@ void postTelemetry() {
   String url = String(BASE_URL) + "/api/v1/ingest";
   if (!https.begin(client, url)) { Serial.println("begin failed"); return; }
   https.addHeader("Content-Type", "application/json");
+  https.addHeader("Authorization", String("Bearer ") + DEVICE_KEY);
 
   JsonDocument doc;
   doc["site_id"]            = SITE_ID;
@@ -259,6 +262,7 @@ void fetchCommands() {
   HTTPClient https;
   String url = String(BASE_URL) + "/api/v1/commands/latest?site_id=" + SITE_ID;
   if (!https.begin(client, url)) return;
+  https.addHeader("Authorization", String("Bearer ") + DEVICE_KEY);
   int code = https.GET();
   if (code == 200) {
     String payload = https.getString();
