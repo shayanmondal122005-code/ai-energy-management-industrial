@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS telemetry (
   soc_pct FLOAT,
   solar_w FLOAT,
   total_load_w FLOAT,
+  sim_hour FLOAT,
   grid_charge_active BOOLEAN,
   grid_charge_w FLOAT,
   charge_source TEXT,

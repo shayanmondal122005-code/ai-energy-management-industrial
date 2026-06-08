@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.cache import get_redis
 from backend.core.database import get_db
+from backend.services.forecast_service import get_load_forecast
 
 router = APIRouter()
 
@@ -35,23 +36,40 @@ DEFAULT_COMMANDS = {
 }
 
 
-def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict) -> dict:
+def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
+                 forecast: dict | None = None) -> dict:
     """The cloud brain — decides grid-charging from telemetry (ToD arbitrage).
 
-    Runs on every telemetry post. Only sets `grid_charge_relay`; preserves the
-    other relays so manual dashboard control of grid/solar/battery/DG still works.
+    REACTIVE base + PREDICTIVE add-on:
+      - Reactive: charge during cheap windows / when low, never at peak, stop at 90%.
+      - Predictive: if a trustworthy forecast shows a load peak coming soon, pre-charge
+        now (while power is cheap) so we don't buy that peak at peak price.
+
+    The predictive branch only fires when forecast["available"] is True — i.e. once
+    enough history exists. Until then the brain runs purely reactive. So it
+    "auto-upgrades" to predictive with no code change once data accumulates.
+
+    Only sets `grid_charge_relay`; preserves manual control of other relays.
     The ESP32 applies its own SAFETY overrides on top of this decision.
     """
     cmd = dict(current)
+    cmd.pop("_brain", None)  # never persist diagnostic metadata into the command
     period = (tariff_period or "").upper()
 
     want_charge = False
     if soc < 90:                                            # never charge past 90%
+        # ── Reactive ──
         if period == "OFF-PEAK" and solar_w < 500:         # cheap power + no free solar → store
             want_charge = True
         elif soc < 25 and period != "PEAK":                # top up if low, but never at peak price
             want_charge = True
-    # (≥90% handled above: want_charge stays False)
+
+        # ── Predictive (only when the forecaster is trusted) ──
+        if forecast and forecast.get("available") and period != "PEAK" and soc < 80:
+            peak_in = forecast.get("peak_in_hours")
+            peak_kw = forecast.get("predicted_peak_kw", 0) or 0
+            if peak_in is not None and peak_in <= 4 and peak_kw > 6.0:
+                want_charge = True                          # pre-charge ahead of forecast peak
 
     cmd["grid_charge_relay"] = want_charge
     return cmd
@@ -103,19 +121,19 @@ async def sim_ingest(payload: SimTelemetry, db: AsyncSession = Depends(get_db)):
     await db.execute(
         text("""
             INSERT INTO telemetry
-                (site_id, ts, soc_pct, solar_w, total_load_w,
+                (site_id, ts, soc_pct, solar_w, total_load_w, sim_hour,
                  grid_charge_active, grid_charge_w, charge_source,
                  tariff_period, tariff_rs_kwh,
                  grid_on, battery_on, solar_on, dg_on, circuits)
             VALUES
-                (:site_id, :ts, :soc_pct, :solar_w, :total_load_w,
+                (:site_id, :ts, :soc_pct, :solar_w, :total_load_w, :sim_hour,
                  :grid_charge_active, :grid_charge_w, :charge_source,
                  :tariff_period, :tariff_rs_kwh,
                  :grid_on, :battery_on, :solar_on, :dg_on, CAST(:circuits AS JSONB))
         """),
         {
             "site_id": payload.site_id, "ts": payload.ts, "soc_pct": payload.soc_pct,
-            "solar_w": payload.solar_w, "total_load_w": payload.total_load_w,
+            "solar_w": payload.solar_w, "total_load_w": payload.total_load_w, "sim_hour": payload.sim_hour,
             "grid_charge_active": payload.grid_charge_active, "grid_charge_w": payload.grid_charge_w,
             "charge_source": payload.charge_source, "tariff_period": payload.tariff_period,
             "tariff_rs_kwh": payload.tariff_rs_kwh, "grid_on": payload.grid_on,
@@ -132,10 +150,11 @@ async def sim_ingest(payload: SimTelemetry, db: AsyncSession = Depends(get_db)):
         cached["received_at"] = datetime.now(timezone.utc).isoformat()
         await r.set(f"latest:{payload.site_id}", json.dumps(cached, default=str))
 
-        # ── Cloud brain decides grid-charging ──
+        # ── Cloud brain decides grid-charging (reactive + predictive) ──
+        forecast = await get_load_forecast(db, payload.site_id, payload.sim_hour)
         raw = await r.get(f"commands:{payload.site_id}")
         current = json.loads(raw) if raw else dict(DEFAULT_COMMANDS)
-        decided = brain_decide(payload.soc_pct, payload.solar_w, payload.tariff_period, current)
+        decided = brain_decide(payload.soc_pct, payload.solar_w, payload.tariff_period, current, forecast)
         await r.set(f"commands:{payload.site_id}", json.dumps(decided))
     except Exception:
         pass  # cache/brain are best-effort; the ESP32 has local fallback
@@ -179,6 +198,20 @@ async def set_commands(cmd: RelayCommands):
 @router.put("/commands")
 async def set_commands_put(cmd: RelayCommands):
     return await set_commands(cmd)
+
+
+@router.get("/forecast")
+async def forecast(site_id: str = Query(default=DEFAULT_SITE), db: AsyncSession = Depends(get_db)):
+    """The brain's current load forecast for a site (drives predictive dispatch)."""
+    current_hour = None
+    try:
+        r = await get_redis()
+        val = await r.get(f"latest:{site_id}")
+        if val:
+            current_hour = json.loads(val).get("sim_hour")
+    except Exception:
+        pass
+    return await get_load_forecast(db, site_id, current_hour)
 
 
 @router.get("/telemetry/latest")
