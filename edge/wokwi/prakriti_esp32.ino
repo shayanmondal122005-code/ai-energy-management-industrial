@@ -66,7 +66,12 @@ bool cmdGrid        = true;
 bool cmdSolar       = true;
 bool cmdBattery     = true;
 bool cmdDg          = false;
-bool cmdGridCharge  = false;           // manual force-on from dashboard
+bool cmdGridCharge  = false;           // grid-charge decision FROM THE CLOUD BRAIN
+
+// Cloud link health — if the brain goes silent, edge falls back to local rules
+bool cloudOnline           = false;
+unsigned long lastCmdOkMs  = 0;
+const unsigned long CLOUD_TIMEOUT_MS = 30000;  // 30s without a command = offline
 
 // ── Live derived values (for OLED) ──────────────────────────────
 float solarW = 0, loadW = 0, gridChargeW = 0;
@@ -141,9 +146,18 @@ void stepSim(float dtSimH) {
     if (circuits[i].active) loadW += circuits[i].watts;
   }
 
-  // Grid-charge decision (auto) + manual force from dashboard
-  bool autoCharge = decideGridCharge(simHour, soc, solarW);
-  gridChargeActive = cmdGrid && (autoCharge || (cmdGridCharge && soc < 90.0));
+  // ── Decision: CLOUD BRAIN decides; EDGE keeps safety reflexes + offline fallback ──
+  if (millis() - lastCmdOkMs > CLOUD_TIMEOUT_MS) cloudOnline = false;
+
+  bool localStop      = soc >= 90.0;   // hard safety: stop charging when full
+  bool localEmergency = soc < 15.0;    // hard safety: must charge NOW
+  bool decision;
+  if (localStop)            decision = false;                                  // safety overrides everything
+  else if (localEmergency)  decision = true;                                   // safety overrides everything
+  else if (cloudOnline)     decision = cmdGridCharge;                          // obey the cloud brain
+  else                      decision = decideGridCharge(simHour, soc, solarW); // brain offline → local rules
+
+  gridChargeActive = cmdGrid && decision;
   gridChargeW = gridChargeActive ? MAX_GRID_CHARGE_W : 0.0;
 
   // Energy balance
@@ -255,7 +269,9 @@ void fetchCommands() {
       cmdBattery    = doc["battery_relay"]     | true;
       cmdDg         = doc["dg_relay"]          | false;
       cmdGridCharge = doc["grid_charge_relay"] | false;
-      Serial.printf("CMD grid=%d solar=%d batt=%d dg=%d gc=%d\n",
+      cloudOnline   = true;                 // brain reachable
+      lastCmdOkMs   = millis();
+      Serial.printf("BRAIN cmd: grid=%d solar=%d batt=%d dg=%d gc=%d\n",
                     cmdGrid, cmdSolar, cmdBattery, cmdDg, cmdGridCharge);
     }
   }
@@ -272,7 +288,10 @@ void drawOled() {
   display.printf("%s Rs%.2f\n", tariffPeriod.c_str(), tariffRs);
   display.printf("G%d S%d B%d D%d C%d\n",
                  cmdGrid, cmdSolar, cmdBattery, cmdDg, gridChargeActive);
-  if (gridChargeActive) display.printf("GRID-CHG %.0fW", gridChargeW);
+  const char* mode = (soc < 15.0) ? "EMERGENCY"
+                   : (soc >= 90.0) ? "FULL/STOP"
+                   : (cloudOnline ? "CLOUD-BRAIN" : "LOCAL-FALLBK");
+  display.printf("Decide:%s", mode);
   display.display();
 }
 

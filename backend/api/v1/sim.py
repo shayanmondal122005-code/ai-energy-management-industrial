@@ -35,6 +35,28 @@ DEFAULT_COMMANDS = {
 }
 
 
+def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict) -> dict:
+    """The cloud brain — decides grid-charging from telemetry (ToD arbitrage).
+
+    Runs on every telemetry post. Only sets `grid_charge_relay`; preserves the
+    other relays so manual dashboard control of grid/solar/battery/DG still works.
+    The ESP32 applies its own SAFETY overrides on top of this decision.
+    """
+    cmd = dict(current)
+    period = (tariff_period or "").upper()
+
+    want_charge = False
+    if soc < 90:                                            # never charge past 90%
+        if period == "OFF-PEAK" and solar_w < 500:         # cheap power + no free solar → store
+            want_charge = True
+        elif soc < 25 and period != "PEAK":                # top up if low, but never at peak price
+            want_charge = True
+    # (≥90% handled above: want_charge stays False)
+
+    cmd["grid_charge_relay"] = want_charge
+    return cmd
+
+
 # ── Schemas ───────────────────────────────────────────────────────
 
 class CircuitReading(BaseModel):
@@ -103,14 +125,20 @@ async def sim_ingest(payload: SimTelemetry, db: AsyncSession = Depends(get_db)):
     )
     # get_db commits on success
 
-    # Cache the latest reading in Redis
+    # Cache the latest reading + run the cloud brain to set the next command
     try:
         r = await get_redis()
         cached = payload.model_dump()
         cached["received_at"] = datetime.now(timezone.utc).isoformat()
         await r.set(f"latest:{payload.site_id}", json.dumps(cached, default=str))
+
+        # ── Cloud brain decides grid-charging ──
+        raw = await r.get(f"commands:{payload.site_id}")
+        current = json.loads(raw) if raw else dict(DEFAULT_COMMANDS)
+        decided = brain_decide(payload.soc_pct, payload.solar_w, payload.tariff_period, current)
+        await r.set(f"commands:{payload.site_id}", json.dumps(decided))
     except Exception:
-        pass  # cache is best-effort
+        pass  # cache/brain are best-effort; the ESP32 has local fallback
 
     return {"status": "ok", "ts": payload.ts}
 
