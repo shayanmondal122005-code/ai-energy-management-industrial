@@ -98,7 +98,9 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
 
     try:
         if r:
-            await r.setex(f"forecast:{site_id}", CACHE_TTL, json.dumps(result))
+            # Cache trusted forecasts longer; re-check quickly while still ramping up
+            ttl = CACHE_TTL if result["available"] else 15
+            await r.setex(f"forecast:{site_id}", ttl, json.dumps(result))
     except Exception:
         pass
     return result
