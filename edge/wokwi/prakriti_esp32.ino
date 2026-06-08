@@ -58,7 +58,8 @@ const int N_CIRCUITS = 4;
 // ── Simulation state ────────────────────────────────────────────
 float soc          = 55.0;             // % state of charge
 float simHour      = 22.5;             // start just before off-peak
-const float SIM_HOURS_PER_SEC = 0.10;  // 1 real sec = 0.1 sim hour → full day in 4 min
+const float SIM_HOURS_PER_SEC = 0.05;  // 1 real sec = 0.05 sim hour → full day in ~8 min
+const float MAX_DSOC_PER_STEP = 1.5;   // clamp per-tick SoC change for a stable curve
 
 // ── Relay command state (from dashboard) ────────────────────────
 bool cmdGrid        = true;
@@ -167,10 +168,20 @@ void stepSim(float dtSimH) {
     chargeSource = "none";
   }
 
-  // Coulomb counting
-  soc += (chargeW - dischargeW) * dtSimH / BATTERY_WH * 100.0;
+  // Coulomb counting (clamped for a smooth, stable curve)
+  float dSoc = (chargeW - dischargeW) * dtSimH / BATTERY_WH * 100.0;
+  if (dSoc >  MAX_DSOC_PER_STEP) dSoc =  MAX_DSOC_PER_STEP;
+  if (dSoc < -MAX_DSOC_PER_STEP) dSoc = -MAX_DSOC_PER_STEP;
+  soc += dSoc;
   if (soc > 100) soc = 100;
   if (soc < 0)   soc = 0;
+
+  // Refresh circuit shed-state against the UPDATED SoC so telemetry is consistent
+  loadW = 0;
+  for (int i = 0; i < N_CIRCUITS; i++) {
+    circuits[i].active = (circuits[i].shedSoc < 0) || (soc >= circuits[i].shedSoc);
+    if (circuits[i].active) loadW += circuits[i].watts;
+  }
 
   computeTariff(simHour);
 
