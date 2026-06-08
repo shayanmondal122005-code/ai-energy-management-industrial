@@ -158,6 +158,22 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Customer electricity bills — uploaded from the dashboard. Monthly aggregates
+-- calibrate the savings/ROI engine and provide a verified baseline.
+CREATE TABLE IF NOT EXISTS bills (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  facility_id    UUID NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+  tenant_id      UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  period         TEXT,                 -- e.g. "May 2026"
+  units_kwh      FLOAT,
+  peak_demand_kw FLOAT,
+  amount_rs      FLOAT,
+  file_name      TEXT,
+  file_data      BYTEA,                -- the uploaded bill (PDF/image), optional
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_bills_facility ON bills(facility_id, created_at DESC);
+
 -- Per-device API keys — each microcontroller gets its own site-scoped key.
 -- Stolen device → revoke ONE key, only ITS site affected, never others.
 CREATE TABLE IF NOT EXISTS device_keys (

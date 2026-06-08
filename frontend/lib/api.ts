@@ -117,6 +117,32 @@ export const readings = {
     }>(`/facilities/${facilityId}/solar/generation`),
 };
 
+// ── Bills ────────────────────────────────────────────────────
+
+export type Bill = {
+  id: string; period: string; units_kwh: number; peak_demand_kw: number | null;
+  amount_rs: number; file_name: string | null; has_file: boolean;
+  created_at: string; effective_rate_rs_kwh: number | null;
+};
+
+export const bills = {
+  list: (facilityId: string) => request<Bill[]>(`/facilities/${facilityId}/bills`),
+  upload: async (facilityId: string, form: FormData): Promise<Bill> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+    const res = await fetch(`${BASE}/facilities/${facilityId}/bills`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},  // no Content-Type — browser sets multipart boundary
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new ApiError(res.status, err.detail ?? "Upload failed");
+    }
+    return res.json();
+  },
+  fileUrl: (facilityId: string, billId: string) => `${BASE}/facilities/${facilityId}/bills/${billId}/file`,
+};
+
 // ── Alerts ───────────────────────────────────────────────────
 
 export type Alert = {

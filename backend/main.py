@@ -10,7 +10,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from backend.api.v1 import auth, facilities, readings, grid, alerts, reports, forecast, optimize, safety, sim
+from backend.api.v1 import auth, facilities, readings, grid, alerts, reports, forecast, optimize, safety, sim, bills
 from backend.core.cache import ping_redis
 from backend.core.config import get_settings
 from backend.core.database import ping_db
@@ -105,6 +105,7 @@ app.include_router(reports.router,    prefix="/facilities", tags=["reports"])
 app.include_router(forecast.router,   prefix="/facilities", tags=["forecast"])
 app.include_router(optimize.router,   prefix="/facilities", tags=["optimize"])
 app.include_router(safety.router,     prefix="/facilities", tags=["safety"])
+app.include_router(bills.router,      prefix="/facilities", tags=["bills"])
 app.include_router(sim.router,        prefix="/api/v1",     tags=["simulation"])
 
 
