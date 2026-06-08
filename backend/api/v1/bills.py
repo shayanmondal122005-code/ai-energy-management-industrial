@@ -1,9 +1,11 @@
 """Bills API — customers upload past electricity bills to calibrate savings + baseline."""
+import base64
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,28 +18,40 @@ router = APIRouter()
 MAX_FILE_BYTES = 8 * 1024 * 1024  # 8 MB cap
 
 
+class BillIn(BaseModel):
+    period: str
+    units_kwh: float
+    amount_rs: float
+    peak_demand_kw: float | None = None
+    file_name: str | None = None
+    file_base64: str | None = None   # optional bill PDF/image, base64 or data-URL
+
+
 @router.post("/{facility_id}/bills", status_code=201)
 async def upload_bill(
     facility_id: UUID,
-    period: str = Form(...),
-    units_kwh: float = Form(...),
-    amount_rs: float = Form(...),
-    peak_demand_kw: float | None = Form(default=None),
-    file: UploadFile | None = File(default=None),
+    body: BillIn,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ):
-    """Upload one electricity bill (structured fields + optional PDF/image)."""
+    """Upload one electricity bill (structured fields + optional base64 PDF/image)."""
     if not current_user.can_access_facility(facility_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    file_name = None
+    period = body.period
+    units_kwh = body.units_kwh
+    amount_rs = body.amount_rs
+    peak_demand_kw = body.peak_demand_kw
+    file_name = body.file_name
     file_bytes = None
-    if file is not None:
-        file_bytes = await file.read()
+    if body.file_base64:
+        try:
+            b64 = body.file_base64.split(",")[-1]  # strip data-URL prefix if present
+            file_bytes = base64.b64decode(b64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid file encoding")
         if len(file_bytes) > MAX_FILE_BYTES:
             raise HTTPException(status_code=413, detail="File too large (max 8 MB)")
-        file_name = file.filename
 
     row = (await db.execute(
         text("""

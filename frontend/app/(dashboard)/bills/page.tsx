@@ -21,14 +21,25 @@ export default function BillsPage() {
 
   const upload = useMutation({
     mutationFn: async () => {
-      const fd = new FormData()
-      fd.append("period", form.period)
-      fd.append("units_kwh", form.units_kwh)
-      fd.append("amount_rs", form.amount_rs)
-      if (form.peak_demand_kw) fd.append("peak_demand_kw", form.peak_demand_kw)
       const f = fileRef.current?.files?.[0]
-      if (f) fd.append("file", f)
-      return bills.upload(facilityId, fd)
+      let file_base64: string | null = null
+      let file_name: string | null = null
+      if (f) {
+        file_base64 = await new Promise<string>((res, rej) => {
+          const rd = new FileReader()
+          rd.onload = () => res(rd.result as string)
+          rd.onerror = rej
+          rd.readAsDataURL(f)
+        })
+        file_name = f.name
+      }
+      return bills.upload(facilityId, {
+        period: form.period,
+        units_kwh: Number(form.units_kwh),
+        amount_rs: Number(form.amount_rs),
+        peak_demand_kw: form.peak_demand_kw ? Number(form.peak_demand_kw) : null,
+        file_name, file_base64,
+      })
     },
     onSuccess: () => {
       setForm({ period: "", units_kwh: "", peak_demand_kw: "", amount_rs: "" })
@@ -40,6 +51,14 @@ export default function BillsPage() {
   })
 
   const upd = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => setForm(s => ({ ...s, [k]: e.target.value }))
+
+  async function viewFile(billId: string) {
+    const token = localStorage.getItem("access_token")
+    const res = await fetch(bills.fileUrl(facilityId, billId), { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) return
+    const blob = await res.blob()
+    window.open(URL.createObjectURL(blob), "_blank")
+  }
 
   // Calibration summary from uploaded bills
   const avgRate = billList.length
@@ -143,7 +162,7 @@ export default function BillsPage() {
                     <td className="px-4 py-3 text-emerald-400 font-mono">₹{b.effective_rate_rs_kwh ?? "—"}</td>
                     <td className="px-4 py-3">
                       {b.has_file
-                        ? <a href={bills.fileUrl(facilityId, b.id)} target="_blank" className="text-accent hover:underline">view</a>
+                        ? <button onClick={() => viewFile(b.id)} className="text-accent hover:underline">view</button>
                         : <span className="text-slate-500">—</span>}
                     </td>
                   </tr>

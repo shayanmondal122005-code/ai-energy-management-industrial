@@ -125,21 +125,15 @@ export type Bill = {
   created_at: string; effective_rate_rs_kwh: number | null;
 };
 
+export type BillInput = {
+  period: string; units_kwh: number; amount_rs: number;
+  peak_demand_kw?: number | null; file_name?: string | null; file_base64?: string | null;
+};
+
 export const bills = {
   list: (facilityId: string) => request<Bill[]>(`/facilities/${facilityId}/bills`),
-  upload: async (facilityId: string, form: FormData): Promise<Bill> => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-    const res = await fetch(`${BASE}/facilities/${facilityId}/bills`, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},  // no Content-Type — browser sets multipart boundary
-      body: form,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new ApiError(res.status, err.detail ?? "Upload failed");
-    }
-    return res.json();
-  },
+  upload: (facilityId: string, data: BillInput) =>
+    request<Bill>(`/facilities/${facilityId}/bills`, { method: "POST", body: JSON.stringify(data) }),
   fileUrl: (facilityId: string, billId: string) => `${BASE}/facilities/${facilityId}/bills/${billId}/file`,
 };
 
