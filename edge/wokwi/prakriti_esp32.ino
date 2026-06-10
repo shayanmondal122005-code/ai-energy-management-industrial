@@ -28,7 +28,7 @@ const char* WIFI_PASS = "";
 const char* BASE_URL  = "https://ai-energy-management-industrial-production.up.railway.app";
 const char* SITE_ID   = "sim-hospital-01";
 // Per-device API key (mint with: POST /api/v1/devices). Bound to THIS site only.
-const char* DEVICE_KEY = "PASTE_YOUR_dk_KEY_HERE";
+const char* DEVICE_KEY = "dk_102bf365db58_17fe6b122c568ccc034a5f1fc83ce6fc68f97043baa8d45b";
 
 // ── Pins ────────────────────────────────────────────────────────
 const int PIN_SOLAR       = 25;
@@ -69,6 +69,9 @@ bool cmdSolar       = true;
 bool cmdBattery     = true;
 bool cmdDg          = false;
 bool cmdGridCharge  = false;           // grid-charge decision FROM THE CLOUD BRAIN
+bool cmdBatteryDischarge = false;      // discharge decision FROM THE CLOUD BRAIN (peak-only)
+
+const float RESERVE_SOC = 30.0;        // outage backup floor — savings never go below this
 
 // Cloud link health — if the brain goes silent, edge falls back to local rules
 bool cloudOnline           = false;
@@ -170,9 +173,17 @@ void stepSim(float dtSimH) {
   if (cmdSolar && surplus > 0 && soc < 100) chargeW += surplus;     // solar soak
   if (gridChargeActive)                     chargeW += gridChargeW; // grid charge
 
-  if (deficit > 0) {
-    if (cmdBattery && soc > 5.0)   dischargeW += deficit;  // battery covers
-    // else grid/DG covers — no SoC change
+  // Discharge strategy: hold the battery for PEAK hours (where each kWh is
+  // worth most). Reserve floor protects outage backup. A real grid outage
+  // (grid relay open) overrides and lets the battery carry load down to 10%.
+  if (deficit > 0 && cmdBattery) {
+    bool allow;
+    if (!cmdGrid)             allow = soc > 10.0;                              // outage: battery carries load
+    else if (cloudOnline)     allow = cmdBatteryDischarge && soc > RESERVE_SOC; // brain releases at PEAK
+    else                      allow = (simHour >= 18.0 && simHour < 22.0)       // offline fallback: peak window
+                                      && soc > RESERVE_SOC;
+    if (allow) dischargeW += deficit;
+    // otherwise grid/DG carries the load — no SoC change
   }
 
   // charge source label
@@ -272,7 +283,8 @@ void fetchCommands() {
       cmdSolar      = doc["solar_relay"]       | true;
       cmdBattery    = doc["battery_relay"]     | true;
       cmdDg         = doc["dg_relay"]          | false;
-      cmdGridCharge = doc["grid_charge_relay"] | false;
+      cmdGridCharge        = doc["grid_charge_relay"] | false;
+      cmdBatteryDischarge  = doc["battery_discharge"] | false;
       cloudOnline   = true;                 // brain reachable
       lastCmdOkMs   = millis();
       Serial.printf("BRAIN cmd: grid=%d solar=%d batt=%d dg=%d gc=%d\n",

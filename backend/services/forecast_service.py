@@ -45,19 +45,23 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
         cached = await r.get(f"forecast:{site_id}")
         if cached:
             f = json.loads(cached)
-            # recompute "peak_in_hours" against the live current hour (cheap)
+            # recompute time-relative fields against the live current hour (cheap)
             if current_hour is not None and f.get("available"):
                 f["peak_in_hours"] = _hours_until(current_hour, f["peak_hour"])
                 f["avg_next_3h_kw"] = _avg_next_3h(f["profile"], current_hour)
+                f["solar_next_3h_kw"] = _avg_next_3h(f.get("solar_profile", {}), current_hour)
             return f
     except Exception:
         r = None
 
-    # Aggregate recent telemetry by sim hour-of-day
+    # Aggregate recent telemetry by sim hour-of-day (load AND solar)
     try:
         rows = (await db.execute(
             text("""
-                SELECT floor(sim_hour) AS hr, AVG(total_load_w) AS avg_w, COUNT(*) AS n
+                SELECT floor(sim_hour) AS hr,
+                       AVG(total_load_w) AS avg_w,
+                       AVG(solar_w)      AS avg_solar_w,
+                       COUNT(*) AS n
                 FROM telemetry
                 WHERE site_id = :sid
                   AND sim_hour IS NOT NULL
@@ -72,6 +76,7 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
         rows = []
 
     profile = {int(r.hr): float(r.avg_w) / 1000.0 for r in rows if r.hr is not None}
+    solar_profile = {int(r.hr): float(r.avg_solar_w or 0) / 1000.0 for r in rows if r.hr is not None}
     samples = sum(int(r.n) for r in rows)
     buckets = len(profile)
 
@@ -82,7 +87,8 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
             "available": False, "method": "hourly-avg",
             "samples": samples, "buckets": buckets,
             "predicted_peak_kw": 0.0, "peak_hour": -1,
-            "peak_in_hours": None, "avg_next_3h_kw": 0.0, "profile": profile,
+            "peak_in_hours": None, "avg_next_3h_kw": 0.0, "solar_next_3h_kw": 0.0,
+            "profile": profile, "solar_profile": {},
         }
     else:
         peak_hour = max(profile, key=profile.get)
@@ -93,7 +99,9 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
             "peak_hour": peak_hour,
             "peak_in_hours": _hours_until(current_hour, peak_hour) if current_hour is not None else None,
             "avg_next_3h_kw": _avg_next_3h(profile, current_hour) if current_hour is not None else 0.0,
+            "solar_next_3h_kw": _avg_next_3h(solar_profile, current_hour) if current_hour is not None else 0.0,
             "profile": {str(k): round(v, 2) for k, v in profile.items()},
+            "solar_profile": {str(k): round(v, 2) for k, v in solar_profile.items()},
         }
 
     try:

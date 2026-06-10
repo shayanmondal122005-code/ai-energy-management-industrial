@@ -67,7 +67,12 @@ DEFAULT_COMMANDS = {
     "battery_relay":     True,
     "dg_relay":          False,
     "grid_charge_relay": False,
+    "battery_discharge": False,   # brain releases the battery only when it pays (PEAK)
 }
+
+RESERVE_SOC     = 30.0   # outage-backup floor — savings never eat into this
+SIM_BATTERY_KWH = 5.0    # Wokwi pack size (5 kWh)
+PEAK_WINDOW_H   = 4.0    # evening peak duration the battery must carry
 
 
 def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
@@ -89,23 +94,40 @@ def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
     cmd = dict(current)
     cmd.pop("_brain", None)  # never persist diagnostic metadata into the command
     period = (tariff_period or "").upper()
+    fc_ok = bool(forecast and forecast.get("available"))
+    solar_next_kw = float((forecast or {}).get("solar_next_3h_kw") or 0)
+
+    # ── Efficiency 1: charge TARGET sized by forecast, not blanket 90% ──
+    # Store just enough for the peak window + outage reserve → fewer wasted
+    # cycles, less standby loss, longer battery life.
+    target_soc = 90.0
+    if fc_ok:
+        peak_kw = float(forecast.get("predicted_peak_kw") or 0)
+        needed_pct = (peak_kw * PEAK_WINDOW_H / SIM_BATTERY_KWH) * 100.0
+        target_soc = max(45.0, min(90.0, RESERVE_SOC + needed_pct))
 
     want_charge = False
-    if soc < 90:                                            # never charge past 90%
+    if soc < target_soc:
         # ── Reactive ──
-        if period == "OFF-PEAK" and solar_w < 500:         # cheap power + no free solar → store
-            want_charge = True
-        elif soc < 25 and period != "PEAK":                # top up if low, but never at peak price
+        if period == "OFF-PEAK" and solar_w < 500:          # cheap power + no free solar → store
+            # ── Efficiency 2: solar-aware hold — skip pre-dawn grid buying
+            # when the forecast says the sun will fill us for free shortly.
+            if not (solar_next_kw > 1.0 and soc >= RESERVE_SOC + 10):
+                want_charge = True
+        elif soc < 25 and period != "PEAK":                 # top up if low, but never at peak price
             want_charge = True
 
-        # ── Predictive (only when the forecaster is trusted) ──
-        if forecast and forecast.get("available") and period != "PEAK" and soc < 80:
+        # ── Predictive pre-charge ahead of a forecast load peak ──
+        if fc_ok and period != "PEAK" and soc < min(80.0, target_soc):
             peak_in = forecast.get("peak_in_hours")
-            peak_kw = forecast.get("predicted_peak_kw", 0) or 0
+            peak_kw = float(forecast.get("predicted_peak_kw") or 0)
             if peak_in is not None and peak_in <= 4 and peak_kw > 6.0:
-                want_charge = True                          # pre-charge ahead of forecast peak
+                want_charge = True
 
+    # ── Efficiency 3: discharge ONLY when it pays — at PEAK, above reserve ──
+    # (Previously the battery drained at NORMAL-rate hours and was empty by peak.)
     cmd["grid_charge_relay"] = want_charge
+    cmd["battery_discharge"] = (period == "PEAK") and soc > RESERVE_SOC
     return cmd
 
 
@@ -143,6 +165,7 @@ class RelayCommands(BaseModel):
     battery_relay:     bool = True
     dg_relay:          bool = False
     grid_charge_relay: bool = False
+    battery_discharge: bool = False
 
 
 # ── Endpoints ─────────────────────────────────────────────────────
@@ -223,6 +246,7 @@ async def set_commands(cmd: RelayCommands, request: Request, db: AsyncSession = 
         "battery_relay":     cmd.battery_relay,
         "dg_relay":          cmd.dg_relay,
         "grid_charge_relay": cmd.grid_charge_relay,
+        "battery_discharge": cmd.battery_discharge,
     }
     try:
         r = await get_redis()
