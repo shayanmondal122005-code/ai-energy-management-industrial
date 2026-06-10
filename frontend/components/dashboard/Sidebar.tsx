@@ -5,7 +5,7 @@ import { useState, useEffect } from "react"
 import {
   LayoutDashboard, TrendingUp, Zap, Layers, Battery,
   Sun, DollarSign, Bell, Settings, Shield, BrainCircuit,
-  Menu, X, FileText,
+  Menu, X, FileText, Cpu,
 } from "lucide-react"
 
 const NAV = [
@@ -18,6 +18,7 @@ const NAV = [
   { href: "/solar",     label: "Solar Health", icon: Sun },
   { href: "/savings",   label: "Savings",      icon: DollarSign },
   { href: "/bills",     label: "Bills",        icon: FileText },
+  { href: "/edge",      label: "Edge Monitor", icon: Cpu },
   { href: "/alerts",    label: "Alerts",       icon: Bell },
   { href: "/settings",  label: "Settings",     icon: Settings },
   { href: "/admin",     label: "Admin",        icon: Shield },

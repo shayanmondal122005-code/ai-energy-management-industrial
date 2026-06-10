@@ -137,6 +137,34 @@ export const bills = {
   fileUrl: (facilityId: string, billId: string) => `${BASE}/facilities/${facilityId}/bills/${billId}/file`,
 };
 
+// ── Edge / Simulation ───────────────────────────────────────
+
+export type EdgeLive = {
+  telemetry: {
+    site_id: string; soc_pct: number; solar_w: number; total_load_w: number;
+    grid_charge_active: boolean; grid_charge_w: number; charge_source: string;
+    tariff_period: string; tariff_rs_kwh: number; sim_hour: number;
+    grid_on: boolean; battery_on: boolean; solar_on: boolean; dg_on: boolean;
+    circuits: { name: string; watts: number; active: boolean }[];
+    received_at: string;
+  } | null;
+  commands: {
+    grid_relay: boolean; solar_relay: boolean; battery_relay: boolean;
+    dg_relay: boolean; grid_charge_relay: boolean; battery_discharge: boolean;
+  };
+  forecast: {
+    available: boolean; samples: number; buckets: number;
+    predicted_peak_kw: number; peak_hour: number; peak_in_hours: number | null;
+    avg_next_3h_kw: number; solar_next_3h_kw: number;
+    profile: Record<string, number>;
+  } | null;
+};
+
+export const edge = {
+  live: (siteId = "sim-hospital-01") =>
+    request<EdgeLive>(`/api/v1/edge/live?site_id=${siteId}`),
+};
+
 // ── Alerts ───────────────────────────────────────────────────
 
 export type Alert = {

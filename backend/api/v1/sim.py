@@ -341,3 +341,35 @@ async def revoke_device(key_id: str, db: AsyncSession = Depends(get_db),
     """Revoke a device key (e.g. lost/stolen controller). Only its site is affected."""
     current_user.require_admin()
     await db.execute(text("UPDATE device_keys SET is_active=false WHERE id=:id"), {"id": key_id})
+
+
+# ── Dashboard-facing edge monitor (JWT auth, no device key needed) ───────
+
+@router.get("/edge/live")
+async def edge_live(site_id: str = Query(default=DEFAULT_SITE),
+                    db: AsyncSession = Depends(get_db),
+                    current_user: CurrentUser = Depends(get_current_user)):
+    """Live edge telemetry + brain command + forecast in one call (for the dashboard)."""
+    r = await get_redis()
+    telemetry = commands = forecast_data = None
+    try:
+        val = await r.get(f"latest:{site_id}")
+        if val:
+            telemetry = json.loads(val)
+    except Exception:
+        pass
+    try:
+        val = await r.get(f"commands:{site_id}")
+        if val:
+            commands = json.loads(val)
+    except Exception:
+        pass
+    try:
+        forecast_data = await get_load_forecast(db, site_id, (telemetry or {}).get("sim_hour"))
+    except Exception:
+        pass
+    return {
+        "telemetry": telemetry,
+        "commands": commands or DEFAULT_COMMANDS,
+        "forecast": forecast_data,
+    }
