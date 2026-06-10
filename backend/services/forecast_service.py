@@ -10,6 +10,8 @@ to be trustworthy) the brain falls back to reactive dispatch.
 """
 import json
 import logging
+
+import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +23,46 @@ logger = logging.getLogger(__name__)
 MIN_SAMPLES = 150     # total readings
 MIN_BUCKETS = 10      # distinct hours-of-day covered
 CACHE_TTL   = 120     # seconds (sim is fast; recompute every 2 min)
+
+# Weather (Kolkata) — tomorrow's expected solar yield factor, cached 30 min
+KOLKATA_LAT, KOLKATA_LON = 22.57, 88.36
+WEATHER_TTL = 1800
+
+
+async def get_weather_solar_factor() -> float | None:
+    """0..1 factor for tomorrow's solar yield from Open-Meteo cloud cover.
+
+    1.0 = clear sky, 0.0 = fully overcast. None if the fetch fails — the
+    brain simply skips the weather adjustment then.
+    """
+    try:
+        r = await get_redis()
+        cached = await r.get("weather:solar_factor")
+        if cached is not None:
+            return float(cached)
+    except Exception:
+        r = None
+    try:
+        async with httpx.AsyncClient(timeout=6) as client:
+            resp = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={"latitude": KOLKATA_LAT, "longitude": KOLKATA_LON,
+                        "daily": "cloud_cover_mean", "forecast_days": 2,
+                        "timezone": "Asia/Kolkata"},
+            )
+            resp.raise_for_status()
+            days = resp.json()["daily"]["cloud_cover_mean"]
+            cloud_pct = float(days[1] if len(days) > 1 else days[0])
+            factor = round(max(0.0, 1.0 - cloud_pct / 100.0), 2)
+    except Exception as exc:
+        logger.warning("weather fetch failed: %s", exc)
+        return None
+    try:
+        if r:
+            await r.setex("weather:solar_factor", WEATHER_TTL, str(factor))
+    except Exception:
+        pass
+    return factor
 
 
 async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float | None = None) -> dict:
@@ -50,6 +92,7 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
                 f["peak_in_hours"] = _hours_until(current_hour, f["peak_hour"])
                 f["avg_next_3h_kw"] = _avg_next_3h(f["profile"], current_hour)
                 f["solar_next_3h_kw"] = _avg_next_3h(f.get("solar_profile", {}), current_hour)
+            f["weather_solar_factor"] = await get_weather_solar_factor()
             return f
     except Exception:
         r = None
@@ -111,6 +154,7 @@ async def get_load_forecast(db: AsyncSession, site_id: str, current_hour: float 
             await r.setex(f"forecast:{site_id}", ttl, json.dumps(result))
     except Exception:
         pass
+    result["weather_solar_factor"] = await get_weather_solar_factor()
     return result
 
 

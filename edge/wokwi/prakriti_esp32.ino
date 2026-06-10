@@ -79,7 +79,7 @@ unsigned long lastCmdOkMs  = 0;
 const unsigned long CLOUD_TIMEOUT_MS = 30000;  // 30s without a command = offline
 
 // ── Live derived values (for OLED) ──────────────────────────────
-float solarW = 0, loadW = 0, gridChargeW = 0;
+float solarW = 0, loadW = 0, gridChargeW = 0, dgW = 0;
 String chargeSource = "none";
 String tariffPeriod = "NORMAL";
 float  tariffRs = 7.0;
@@ -182,9 +182,28 @@ void stepSim(float dtSimH) {
     else if (cloudOnline)     allow = cmdBatteryDischarge && soc > RESERVE_SOC; // brain releases at PEAK
     else                      allow = (simHour >= 18.0 && simHour < 22.0)       // offline fallback: peak window
                                       && soc > RESERVE_SOC;
-    if (allow) dischargeW += deficit;
+    if (allow) {
+      float allowedW = deficit;
+      // Paced discharge: spread the stored energy across the WHOLE peak
+      // window instead of dumping it in the first hour. Same kWh clips
+      // expensive energy for all 4 hours AND flattens demand spikes.
+      // An outage (!cmdGrid) skips pacing — keeping load alive comes first.
+      if (cmdGrid && simHour >= 18.0 && simHour < 22.0) {
+        float hoursLeft  = 22.0 - simHour;
+        if (hoursLeft < 0.5) hoursLeft = 0.5;
+        float usableWh   = (soc - RESERVE_SOC) / 100.0 * BATTERY_WH;
+        float paceW      = usableWh / hoursLeft;
+        if (paceW < allowedW) allowedW = paceW;
+      }
+      dischargeW += allowedW;
+    }
     // otherwise grid/DG carries the load — no SoC change
   }
+
+  // DG power: whatever deficit the battery doesn't cover while the grid is
+  // out and the DG is running. (Real hardware: a dedicated CT clamp on the
+  // DG feeder at the changeover panel measures this directly.)
+  dgW = (!cmdGrid && cmdDg) ? max(0.0f, deficit - dischargeW) : 0.0;
 
   // charge source label
   if (chargeW > 0) {
@@ -252,6 +271,7 @@ void postTelemetry() {
   doc["battery_on"]         = cmdBattery;
   doc["solar_on"]           = cmdSolar;
   doc["dg_on"]              = cmdDg;
+  doc["dg_w"]               = roundf(dgW);
   JsonArray arr = doc["circuits"].to<JsonArray>();
   for (int i = 0; i < N_CIRCUITS; i++) {
     JsonObject c = arr.add<JsonObject>();

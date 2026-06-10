@@ -74,9 +74,16 @@ RESERVE_SOC     = 30.0   # outage-backup floor — savings never eat into this
 SIM_BATTERY_KWH = 5.0    # Wokwi pack size (5 kWh)
 PEAK_WINDOW_H   = 4.0    # evening peak duration the battery must carry
 
+# ── Efficiency upgrade constants ──
+SIM_CONTRACT_KW   = 8.0   # contract demand — spikes above this incur demand charges
+OFFPEAK_RATE_RS   = 5.25  # cheapest grid energy (what stored kWh cost us)
+CYCLE_COST_RS     = 2.5   # battery wear per kWh cycled (pack price / lifetime throughput)
+CLOUDY_FACTOR     = 0.4   # weather factor below this = cloudy day expected
+
 
 def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
-                 forecast: dict | None = None) -> dict:
+                 forecast: dict | None = None, load_w: float = 0.0,
+                 tariff_rs: float = 7.0, dg_on: bool = False, grid_on: bool = True) -> dict:
     """The cloud brain — decides grid-charging from telemetry (ToD arbitrage).
 
     REACTIVE base + PREDICTIVE add-on:
@@ -105,6 +112,11 @@ def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
         peak_kw = float(forecast.get("predicted_peak_kw") or 0)
         needed_pct = (peak_kw * PEAK_WINDOW_H / SIM_BATTERY_KWH) * 100.0
         target_soc = max(45.0, min(90.0, RESERVE_SOC + needed_pct))
+        # ── Efficiency 4: weather-aware — cloudy tomorrow means solar won't
+        # refill us for free, so bank more cheap grid energy tonight.
+        wf = forecast.get("weather_solar_factor")
+        if wf is not None and float(wf) < CLOUDY_FACTOR:
+            target_soc = min(90.0, target_soc + 15.0)
 
     want_charge = False
     if soc < target_soc:
@@ -124,10 +136,26 @@ def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
             if peak_in is not None and peak_in <= 4 and peak_kw > 6.0:
                 want_charge = True
 
-    # ── Efficiency 3: discharge ONLY when it pays — at PEAK, above reserve ──
-    # (Previously the battery drained at NORMAL-rate hours and was empty by peak.)
+    # ── Efficiency 3: discharge ONLY when it pays — at PEAK, above reserve,
+    # and only when the tariff spread beats battery wear (degradation guard).
+    spread_ok = (tariff_rs - OFFPEAK_RATE_RS) > CYCLE_COST_RS
+    discharge = (period == "PEAK") and soc > RESERVE_SOC and spread_ok
+
+    # ── Efficiency 5: demand-charge shaving — clip load spikes above contract
+    # demand at ANY hour. One 30-min spike sets the month's demand penalty,
+    # so clipping it beats every energy-rate trick.
+    if load_w / 1000.0 > SIM_CONTRACT_KW and soc > RESERVE_SOC:
+        discharge = True
+
+    # ── Efficiency 6: DG displacement — diesel costs ~Rs 25/kWh, the most
+    # expensive power in the system. If the DG is carrying load, every kWh
+    # the battery can give displaces diesel. Worth running below reserve
+    # is NOT allowed (outage backup), but reserve-to-DG is always a win.
+    if dg_on and not grid_on and soc > RESERVE_SOC:
+        discharge = True
+
     cmd["grid_charge_relay"] = want_charge
-    cmd["battery_discharge"] = (period == "PEAK") and soc > RESERVE_SOC
+    cmd["battery_discharge"] = discharge
     return cmd
 
 
@@ -155,6 +183,7 @@ class SimTelemetry(BaseModel):
     battery_on:         bool = True
     solar_on:           bool = True
     dg_on:              bool = False
+    dg_w:               Optional[float] = 0.0
     circuits:           list[CircuitReading] = []
 
 
@@ -212,7 +241,9 @@ async def sim_ingest(payload: SimTelemetry, request: Request, db: AsyncSession =
         forecast = await get_load_forecast(db, payload.site_id, payload.sim_hour)
         raw = await r.get(f"commands:{payload.site_id}")
         current = json.loads(raw) if raw else dict(DEFAULT_COMMANDS)
-        decided = brain_decide(payload.soc_pct, payload.solar_w, payload.tariff_period, current, forecast)
+        decided = brain_decide(payload.soc_pct, payload.solar_w, payload.tariff_period, current, forecast,
+                               load_w=payload.total_load_w, tariff_rs=payload.tariff_rs_kwh or 7.0,
+                               dg_on=payload.dg_on, grid_on=payload.grid_on)
         await r.set(f"commands:{payload.site_id}", json.dumps(decided))
     except Exception:
         pass  # cache/brain are best-effort; the ESP32 has local fallback
