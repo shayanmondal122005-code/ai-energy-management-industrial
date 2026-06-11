@@ -139,12 +139,20 @@ export const bills = {
 
 // ── Edge / Simulation ───────────────────────────────────────
 
+export type EdgeSavings = {
+  total_rs: number; solar_rs: number; arbitrage_rs: number;
+  demand_rs: number; dg_rs: number;
+  baseline_cost_rs: number; optimized_cost_rs: number;
+  load_kwh: number; intervals: number; sim_hours: number;
+};
+
 export type EdgeLive = {
   telemetry: {
     site_id: string; soc_pct: number; solar_w: number; total_load_w: number;
     grid_charge_active: boolean; grid_charge_w: number; charge_source: string;
     tariff_period: string; tariff_rs_kwh: number; sim_hour: number;
     grid_on: boolean; battery_on: boolean; solar_on: boolean; dg_on: boolean;
+    dg_w: number;
     circuits: { name: string; watts: number; active: boolean }[];
     received_at: string;
   } | null;
@@ -158,11 +166,14 @@ export type EdgeLive = {
     avg_next_3h_kw: number; solar_next_3h_kw: number;
     profile: Record<string, number>;
   } | null;
+  savings: EdgeSavings | null;
 };
 
 export const edge = {
   live: (siteId = "sim-hospital-01") =>
     request<EdgeLive>(`/api/v1/edge/live?site_id=${siteId}`),
+  resetSavings: (siteId = "sim-hospital-01") =>
+    request<{ status: string }>(`/api/v1/edge/savings/reset?site_id=${siteId}`, { method: "POST" }),
 };
 
 // ── Alerts ───────────────────────────────────────────────────

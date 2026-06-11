@@ -79,6 +79,79 @@ SIM_CONTRACT_KW   = 8.0   # contract demand — spikes above this incur demand c
 OFFPEAK_RATE_RS   = 5.25  # cheapest grid energy (what stored kWh cost us)
 CYCLE_COST_RS     = 2.5   # battery wear per kWh cycled (pack price / lifetime throughput)
 CLOUDY_FACTOR     = 0.4   # weather factor below this = cloudy day expected
+DIESEL_RATE_RS    = 25.0  # ₹/kWh equivalent cost of running DG
+
+
+# ── Shadow savings calculator ────────────────────────────────────
+# Runs on every telemetry ingest. Compares "what the brain decided" vs.
+# "dumb baseline: buy everything from grid, no battery, no optimization."
+# The delta is the ₹ the system saves (or would save in shadow/pilot mode).
+
+def compute_interval_savings(payload: "SimTelemetry", dt_sim_h: float,
+                             commands: dict) -> dict:
+    """Return per-interval savings breakdown in ₹."""
+    load_kwh = payload.total_load_w / 1000.0 * dt_sim_h
+    tariff = payload.tariff_rs_kwh or 7.0
+
+    # Baseline: all load bought from grid at current tariff
+    baseline_cost = load_kwh * tariff
+
+    # Solar savings: free energy displacing grid purchase
+    solar_used_w = min(payload.solar_w, payload.total_load_w)
+    solar_kwh = solar_used_w / 1000.0 * dt_sim_h
+    solar_savings = solar_kwh * tariff
+
+    # Arbitrage savings: battery discharging at peak displaces expensive grid
+    # The stored energy was bought at off-peak rate, so the net saving is the spread
+    arbitrage_savings = 0.0
+    if commands.get("battery_discharge") and tariff > OFFPEAK_RATE_RS:
+        deficit_w = max(0.0, payload.total_load_w - payload.solar_w)
+        discharge_kwh = deficit_w / 1000.0 * dt_sim_h
+        arbitrage_savings = discharge_kwh * (tariff - OFFPEAK_RATE_RS)
+
+    # Demand shaving: avoiding monthly penalty from spikes above contract demand
+    # ₹350/kVA/month ≈ ₹0.50/kW per interval (amortized). Conservative estimate:
+    # each kW clipped saves ₹350/month ÷ 730 hours = ₹0.48/kWh
+    demand_savings = 0.0
+    if payload.total_load_w / 1000.0 > SIM_CONTRACT_KW and commands.get("battery_discharge"):
+        clipped_kw = payload.total_load_w / 1000.0 - SIM_CONTRACT_KW
+        demand_savings = clipped_kw * dt_sim_h * 0.48
+
+    # DG displacement: battery displacing diesel (₹25/kWh vs ₹5.25 stored)
+    dg_savings = 0.0
+    if payload.dg_on and not payload.grid_on and commands.get("battery_discharge"):
+        dg_displaced_kwh = min(payload.total_load_w, payload.solar_w + (payload.total_load_w - (payload.dg_w or 0))) / 1000.0 * dt_sim_h
+        dg_savings = dg_displaced_kwh * (DIESEL_RATE_RS - OFFPEAK_RATE_RS)
+
+    total_savings = solar_savings + arbitrage_savings + demand_savings + dg_savings
+
+    return {
+        "solar_rs": round(solar_savings, 4),
+        "arbitrage_rs": round(arbitrage_savings, 4),
+        "demand_rs": round(demand_savings, 4),
+        "dg_rs": round(dg_savings, 4),
+        "total_rs": round(total_savings, 4),
+        "baseline_cost_rs": round(baseline_cost, 4),
+        "optimized_cost_rs": round(baseline_cost - total_savings, 4),
+        "load_kwh": round(load_kwh, 4),
+        "dt_sim_h": round(dt_sim_h, 4),
+    }
+
+
+async def accumulate_savings(r, site_id: str, interval: dict) -> None:
+    """Add interval savings to running Redis totals."""
+    pipe = r.pipeline()
+    pipe.hincrbyfloat(f"savings:{site_id}", "solar_rs", interval["solar_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "arbitrage_rs", interval["arbitrage_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "demand_rs", interval["demand_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "dg_rs", interval["dg_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "total_rs", interval["total_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "baseline_cost_rs", interval["baseline_cost_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "optimized_cost_rs", interval["optimized_cost_rs"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "load_kwh", interval["load_kwh"])
+    pipe.hincrbyfloat(f"savings:{site_id}", "intervals", 1)
+    pipe.hincrbyfloat(f"savings:{site_id}", "sim_hours", interval["dt_sim_h"])
+    await pipe.execute()
 
 
 def brain_decide(soc: float, solar_w: float, tariff_period: str, current: dict,
@@ -245,6 +318,17 @@ async def sim_ingest(payload: SimTelemetry, request: Request, db: AsyncSession =
                                load_w=payload.total_load_w, tariff_rs=payload.tariff_rs_kwh or 7.0,
                                dg_on=payload.dg_on, grid_on=payload.grid_on)
         await r.set(f"commands:{payload.site_id}", json.dumps(decided))
+
+        # ── Shadow savings: compute what this interval saved vs. dumb baseline ──
+        prev_raw = await r.get(f"prev_hour:{payload.site_id}")
+        prev_hour = float(prev_raw) if prev_raw else None
+        if prev_hour is not None and payload.sim_hour is not None:
+            dt = (payload.sim_hour - prev_hour) % 24.0
+            if 0 < dt < 1.0:  # sanity: skip if clock wrapped weirdly or first reading
+                interval = compute_interval_savings(payload, dt, decided)
+                await accumulate_savings(r, payload.site_id, interval)
+        if payload.sim_hour is not None:
+            await r.set(f"prev_hour:{payload.site_id}", str(payload.sim_hour))
     except Exception:
         pass  # cache/brain are best-effort; the ESP32 has local fallback
 
@@ -399,8 +483,43 @@ async def edge_live(site_id: str = Query(default=DEFAULT_SITE),
         forecast_data = await get_load_forecast(db, site_id, (telemetry or {}).get("sim_hour"))
     except Exception:
         pass
+    savings = None
+    try:
+        raw = await r.hgetall(f"savings:{site_id}")
+        if raw:
+            savings = {k: round(float(v), 2) for k, v in raw.items()}
+    except Exception:
+        pass
     return {
         "telemetry": telemetry,
         "commands": commands or DEFAULT_COMMANDS,
         "forecast": forecast_data,
+        "savings": savings,
     }
+
+
+@router.get("/edge/savings")
+async def edge_savings(site_id: str = Query(default=DEFAULT_SITE),
+                       current_user: CurrentUser = Depends(get_current_user)):
+    """Shadow savings running totals for a site."""
+    try:
+        r = await get_redis()
+        raw = await r.hgetall(f"savings:{site_id}")
+        if raw:
+            return {k: round(float(v), 2) for k, v in raw.items()}
+    except Exception:
+        pass
+    return {"total_rs": 0, "solar_rs": 0, "arbitrage_rs": 0, "demand_rs": 0, "dg_rs": 0,
+            "baseline_cost_rs": 0, "optimized_cost_rs": 0, "load_kwh": 0, "intervals": 0, "sim_hours": 0}
+
+
+@router.post("/edge/savings/reset")
+async def reset_savings(site_id: str = Query(default=DEFAULT_SITE),
+                        current_user: CurrentUser = Depends(get_current_user)):
+    """Reset the shadow savings counter (e.g. start of a new pilot month)."""
+    try:
+        r = await get_redis()
+        await r.delete(f"savings:{site_id}")
+    except Exception:
+        pass
+    return {"status": "ok", "message": f"Savings counter reset for {site_id}"}

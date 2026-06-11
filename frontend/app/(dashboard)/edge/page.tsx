@@ -1,5 +1,5 @@
 "use client"
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { edge } from "@/lib/api"
 
 const PERIOD_COLOR: Record<string, string> = {
@@ -19,20 +19,32 @@ function Pill({ on, label }: { on: boolean; label: string }) {
   )
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <div className="bg-panel border border-border rounded-xl p-5">
+    <div className={`bg-panel border border-border rounded-xl p-5 ${className}`}>
       <p className="font-mono text-[10px] tracking-[2px] uppercase text-slate-400 mb-3">{title}</p>
       {children}
     </div>
   )
 }
 
+function formatRs(n: number): string {
+  if (n >= 100000) return `${(n / 100000).toFixed(2)}L`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
+  return n.toFixed(2)
+}
+
 export default function EdgeMonitorPage() {
+  const qc = useQueryClient()
   const { data, isLoading, error } = useQuery({
     queryKey: ["edge-live"],
     queryFn: () => edge.live(),
     refetchInterval: 5000,
+  })
+
+  const resetMut = useMutation({
+    mutationFn: () => edge.resetSavings(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["edge-live"] }),
   })
 
   if (isLoading) return <p className="text-slate-400 text-sm py-12 text-center">Connecting to edge device...</p>
@@ -41,6 +53,7 @@ export default function EdgeMonitorPage() {
   const t = data?.telemetry
   const cmd = data?.commands
   const fc = data?.forecast
+  const s = data?.savings
 
   if (!t) {
     return (
@@ -58,12 +71,74 @@ export default function EdgeMonitorPage() {
   const modeColor = modeLabel === "EMERGENCY" ? "text-red-400"
     : modeLabel === "CLOUD BRAIN" ? "text-blue-400" : "text-yellow-400"
 
+  const savingsPct = s && s.baseline_cost_rs > 0
+    ? ((s.total_rs / s.baseline_cost_rs) * 100).toFixed(1)
+    : "0.0"
+
   return (
     <div className="max-w-4xl mx-auto space-y-5">
       <div>
         <h1 className="text-xl font-bold text-white">Edge Monitor</h1>
         <p className="page-sub">Live view · {t.site_id} · sim hour {t.sim_hour?.toFixed(1)}h</p>
       </div>
+
+      {/* Shadow Savings Hero */}
+      {s && s.intervals > 0 && (
+        <div className="bg-gradient-to-r from-emerald-900/30 to-blue-900/30 border border-emerald-400/20 rounded-xl p-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <p className="font-mono text-[10px] tracking-[2px] uppercase text-emerald-400/80">Shadow Savings</p>
+              <p className="text-xs text-slate-400 mt-0.5">What the brain would save vs. buying all from grid</p>
+            </div>
+            <button onClick={() => resetMut.mutate()}
+              className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors px-2 py-1 rounded border border-border hover:border-slate-500">
+              Reset
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <p className="text-3xl font-bold text-emerald-400">₹{formatRs(s.total_rs)}</p>
+              <p className="text-xs text-slate-400">Total saved</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{savingsPct}<span className="text-sm text-slate-400">%</span></p>
+              <p className="text-xs text-slate-400">Cost reduction</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-slate-300">₹{formatRs(s.baseline_cost_rs)}</p>
+              <p className="text-xs text-slate-400">Without system</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-blue-400">₹{formatRs(s.optimized_cost_rs)}</p>
+              <p className="text-xs text-slate-400">With system</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="bg-black/20 rounded-lg p-3">
+              <p className="text-yellow-400 font-bold">₹{formatRs(s.solar_rs)}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">Solar</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-3">
+              <p className="text-amber-400 font-bold">₹{formatRs(s.arbitrage_rs)}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">Arbitrage</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-3">
+              <p className="text-purple-400 font-bold">₹{formatRs(s.demand_rs)}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">Demand shave</p>
+            </div>
+            <div className="bg-black/20 rounded-lg p-3">
+              <p className="text-red-400 font-bold">₹{formatRs(s.dg_rs)}</p>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider">DG displaced</p>
+            </div>
+          </div>
+
+          <p className="text-[10px] text-slate-500 mt-3">
+            {s.intervals?.toFixed(0)} intervals · {s.sim_hours?.toFixed(1)} sim hours · {s.load_kwh?.toFixed(1)} kWh consumed
+          </p>
+        </div>
+      )}
 
       {/* Hero stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
