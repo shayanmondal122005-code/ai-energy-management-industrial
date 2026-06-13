@@ -155,7 +155,7 @@ export default function OptimizePage() {
             <div className="flex items-center gap-3 bg-red-500/7 border border-red-500/20 rounded-xl px-5 py-3">
               <span className="text-red-400 text-lg">⚠</span>
               <div>
-                <p className="text-red-400 text-sm font-medium">Power cut risk detected — battery too small for today's load</p>
+                <p className="text-red-400 text-sm font-medium">Power cut risk detected — battery too small for today&apos;s load</p>
                 <p className="text-red-400/60 text-xs font-mono">
                   Grid import will cover the gap but load shedding may be required
                 </p>
