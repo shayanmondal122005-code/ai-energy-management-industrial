@@ -70,6 +70,26 @@ class ReadingsRepository:
         )
         return result.fetchall()
 
+    async def get_hourly_for_shadow(self, facility_id: UUID, days: int = 30):
+        """Hourly avg load/solar/soc over the last N days — feeds shadow-savings replay.
+        One row per hour with data. Aggregates directly from raw readings (portable,
+        no dependency on the readings_hourly rollup being populated)."""
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        result = await self.db.execute(
+            text("""
+                SELECT date_trunc('hour', timestamp) AS hr,
+                       AVG(load_kw)     AS load_kw,
+                       AVG(solar_kw)    AS solar_kw,
+                       AVG(battery_soc) AS soc
+                FROM readings
+                WHERE facility_id = :fid AND timestamp >= :since
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """),
+            {"fid": str(facility_id), "since": since},
+        )
+        return result.fetchall()
+
     async def get_solar_generation(self, facility_id: UUID) -> SolarGenerationResponse:
         """Solar energy (kWh) = average power × time span, per window.
         Single round-trip using conditional aggregates (FILTER) — fast over WAN."""

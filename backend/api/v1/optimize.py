@@ -1,9 +1,10 @@
 """Optimization API — run LP dispatch optimizer for a facility."""
 import logging
 import math
+from dataclasses import asdict
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.core.cache import cache_get, cache_set
@@ -17,6 +18,7 @@ from backend.services.forecasting import (
 )
 from backend.services.optimizer import optimize_dispatch
 from backend.services.optimizer_v2 import optimize_dispatch_v2
+from backend.services.shadow_savings import compute_shadow_savings
 from backend.services.alert_service import INDIA_TARIFFS
 
 logger = logging.getLogger(__name__)
@@ -158,4 +160,47 @@ async def run_optimizer(
         ttl_seconds=86400,  # valid for 24 hours
     )
 
+    return result
+
+
+@router.get("/{facility_id}/savings/shadow")
+async def shadow_savings(
+    facility_id: UUID,
+    days: int = Query(default=30, ge=1, le=120),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Realized ("shadow") savings over the last N days of REAL data.
+
+    Replays each past day's actual load + solar through the optimizer and sums the
+    per-day savings. This is the honest pilot number — "on your own data, MicroGrid
+    would have saved ₹X" — unlike the projection-based savings calculator.
+    Returns status="insufficient_data" (with zeros) when there aren't enough full
+    days yet, so the frontend can fall back to a projection gracefully.
+    """
+    if not current_user.can_access_facility(facility_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cache_key = f"shadow_savings:{facility_id}:{days}"
+    cached    = await cache_get(cache_key)
+    if cached:
+        return cached
+
+    fac_repo = FacilitiesRepository(db)
+    facility = await fac_repo.get(facility_id)
+    if not facility:
+        raise HTTPException(status_code=404, detail="Facility not found")
+
+    rows   = await ReadingsRepository(db).get_hourly_for_shadow(facility_id, days=days)
+    hourly = [(r.hr, r.load_kw, r.solar_kw, r.soc) for r in rows]
+
+    sav = compute_shadow_savings(
+        hourly,
+        state_tariff=facility.state_tariff,
+        battery_kwh=facility.battery_kwh,
+    )
+
+    result = {"facility_id": str(facility_id), "window_days": days, **asdict(sav)}
+    # Cache 15 min — historical replay is expensive and changes slowly.
+    await cache_set(cache_key, result, ttl_seconds=900)
     return result
