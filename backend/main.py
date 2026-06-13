@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sentry_sdk.integrations.fastapi import FastApiIntegration
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -131,6 +132,41 @@ async def health():
         "redis": redis_ok,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+@app.get("/health/ready", tags=["health"])
+async def readiness():
+    """Strict readiness probe — the DEPLOYMENT GATE.
+
+    Unlike /health (always 200, keeps the container alive), this returns 503
+    when a critical dependency is unreachable. Railway points its healthcheck
+    here, so a freshly-built deploy that cannot reach its database — bad env
+    var, broken migration, import crash on startup — never receives traffic and
+    the previous version keeps serving. That is the automatic "cancel the bad
+    update" behaviour, with zero downtime.
+
+    DB is treated as critical (gates the deploy). Redis is best-effort (cache
+    only) so a Redis blip does not trigger a false rollback.
+    """
+    db_ok = False
+    redis_ok = False
+    try:
+        db_ok = await ping_db()
+    except Exception:
+        pass
+    try:
+        redis_ok = await ping_redis()
+    except Exception:
+        pass
+    ready = db_ok
+    body = {
+        "ready": ready,
+        "version": settings.app_version,
+        "db": db_ok,
+        "redis": redis_ok,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    return JSONResponse(status_code=200 if ready else 503, content=body)
 
 
 @app.get("/", tags=["health"])

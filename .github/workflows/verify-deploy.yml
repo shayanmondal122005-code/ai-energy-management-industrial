@@ -1,0 +1,39 @@
+name: Verify deploy
+
+# Runs AFTER the CI workflow succeeds on main. Waits for Railway/Vercel to
+# publish the new version, then polls production /health/ready. If production
+# never becomes healthy, it auto-rolls-back the backend and fails (notifying
+# you). This is the second safety net beyond Railway's own healthcheck gate.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:   # lets you run "verify production now" by hand any time
+
+jobs:
+  verify:
+    name: Verify production & auto-rollback
+    runs-on: ubuntu-latest
+    # Only proceed when CI actually passed (or when triggered manually).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install httpx
+
+      - name: Wait for platforms to publish the new version
+        run: sleep 90
+
+      - name: Poll production health & roll back on failure
+        env:
+          PROD_URL: ${{ secrets.PROD_API_URL }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        run: python scripts/verify_deploy.py
