@@ -46,3 +46,8 @@ live_feeder.js
 # Local report generator (contains DB string)
 daily_report.js
 daily_report.html
+
+# Local acceptance test (creds + DB string)
+acceptance_test.js
+acceptance_report.html
+frontend/tsconfig.tsbuildinfo
