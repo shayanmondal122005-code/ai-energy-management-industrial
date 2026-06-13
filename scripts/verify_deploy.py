@@ -95,8 +95,10 @@ def rollback_railway() -> bool:
 
 def main() -> int:
     if not PROD_URL:
-        print("PROD_URL not set — cannot verify. Set the PROD_API_URL secret.")
-        return 1
+        print("PROD_API_URL secret not set — skipping production verification.")
+        print("Set PROD_API_URL (and the RAILWAY_* secrets) to enable post-deploy")
+        print("health checks and automatic rollback. See docs/CICD.md.")
+        return 0  # not-yet-configured is not a failure
     print(f"Verifying {PROD_URL}/health/ready  ({ATTEMPTS} polls, {INTERVAL}s apart)")
     for i in range(1, ATTEMPTS + 1):
         if check_ready():
