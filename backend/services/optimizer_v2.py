@@ -12,7 +12,7 @@ Full objective (still a fast Linear Program, ~50ms):
 
   minimize:  Σ grid[h] × price[h]                    ← energy cost
            + demand_charge × peak_excess              ← demand charge (NEW)
-           + degradation × Σ(charge[h] + discharge[h]) ← battery wear (NEW)
+           + degradation × Σ discharge[h]             ← battery wear, per kWh discharged
 
   subject to:
     load[h] = solar[h] + grid[h] + discharge[h] - charge[h]   (power balance)
@@ -105,8 +105,10 @@ def optimize_dispatch_v2(
     obj = np.zeros(NV)
     for h in range(T):
         obj[g_idx(h)] = float(tariff_schedule[h])         # energy cost
-        obj[c_idx(h)] = degradation_cost                  # wear on charge
-        obj[d_idx(h)] = degradation_cost                  # wear on discharge
+        # Battery wear: ₹1.67/kWh is the per-kWh-DISCHARGED cycle cost
+        # (8000 / (6000 × 0.8)). Penalising charge AND discharge double-counts
+        # a single charge→discharge cycle and wrongly kills economic arbitrage.
+        obj[d_idx(h)] = degradation_cost                  # wear per kWh discharged
     obj[PEAK_IDX] = demand_daily                          # demand charge
 
     # ── Equality constraints: power balance + SoC dynamics + initial SoC ──
@@ -150,8 +152,13 @@ def optimize_dispatch_v2(
         bounds.append((0.0, max_charge_kw))        # charge
     for h in range(T):
         bounds.append((0.0, max_discharge_kw))     # discharge
+    # Terminal SoC must not end below the starting SoC. Otherwise the optimizer
+    # "saves" money by permanently draining pre-stored energy — not a real or
+    # sustainable daily saving. This makes daily cycling honest and comparable.
+    terminal_floor = min(max(current_soc, eff_min_soc), max_soc - 0.01)
     for h in range(T + 1):
-        bounds.append((eff_min_soc, max_soc))      # SoC with safety buffer
+        lo = terminal_floor if h == T else eff_min_soc
+        bounds.append((lo, max_soc))               # SoC with safety buffer
     bounds.append((0.0, None))                     # peak_excess ≥ 0
 
     # ── Solve ────────────────────────────────────────────────
@@ -184,7 +191,7 @@ def optimize_dispatch_v2(
     # ── Cost breakdown ───────────────────────────────────────
     cost_energy = sum(grid_kw[h] * tariff_schedule[h] for h in range(T))
     cost_demand = peak_excess * demand_daily
-    cost_degr   = degradation_cost * sum(charge_kw[h] + discharge_kw[h] for h in range(T))
+    cost_degr   = degradation_cost * sum(discharge_kw[h] for h in range(T))
     cost_total  = cost_energy + cost_demand + cost_degr
 
     # Baseline: no battery, grid follows net load, peak unmanaged
