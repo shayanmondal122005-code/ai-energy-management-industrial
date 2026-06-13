@@ -137,6 +137,25 @@ export const bills = {
   fileUrl: (facilityId: string, billId: string) => `${BASE}/facilities/${facilityId}/bills/${billId}/file`,
 };
 
+// ── Savings (shadow mode) ────────────────────────────────────
+
+export type ShadowSavings = {
+  facility_id: string;
+  window_days: number;
+  total_savings_rs: number;
+  days_evaluated: number;
+  avg_daily_rs: number;
+  projected_monthly_rs: number;
+  projected_annual_rs: number;
+  daily: { date: string; savings_rs: number; baseline_rs: number; optimized_rs: number }[];
+  status: "ok" | "insufficient_data";
+};
+
+export const savings = {
+  shadow: (facilityId: string, days = 30) =>
+    request<ShadowSavings>(`/facilities/${facilityId}/savings/shadow?days=${days}`),
+};
+
 // ── Edge / Simulation ───────────────────────────────────────
 
 export type EdgeSavings = {

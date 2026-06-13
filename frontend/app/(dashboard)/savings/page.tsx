@@ -1,8 +1,10 @@
-﻿"use client"
+"use client"
 import { useState, useEffect } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { facilities } from "@/lib/api"
+import { facilities, savings as savingsApi } from "@/lib/api"
 import { INDIA_TARIFFS, DEFAULT_TARIFF } from "@/types"
+
+const SYSTEM_COST = 4_000_000  // ₹40L reference system cost for payback
 
 export default function SavingsPage() {
   const [facilityId, setFacilityId] = useState("")
@@ -12,23 +14,38 @@ export default function SavingsPage() {
   const facility = facilityList?.find(f => f.id === facilityId)
   const tariff   = INDIA_TARIFFS[facility?.state_tariff ?? "West Bengal - CESC"] ?? DEFAULT_TARIFF
 
-  const batKwh  = facility?.battery_kwh ?? 500
-  const peakKw  = 420
-  const now     = new Date().getHours()
+  // Realized ("shadow") savings from real history
+  const { data: shadow } = useQuery({
+    queryKey: ["shadow-savings", facilityId],
+    queryFn : () => savingsApi.shadow(facilityId, 30),
+    enabled : !!facilityId,
+    staleTime: 600_000,
+  })
 
-  const cheapE  = 8 * (facility?.avg_load_kw ?? 300)
-  const arb     = Math.min(cheapE, batKwh) * (tariff.peak - tariff.cheap) * 0.35
-  const demSav  = peakKw * 0.15 * tariff.demand_per_kw / 30
-  const daily   = arb + demSav
-  const monthly = daily * 30
-  const annual  = daily * 365
-  const payback = 4000000 / Math.max(1, monthly)
+  const measured = shadow?.status === "ok" && shadow.days_evaluated > 0
+
+  // Projection fallback (used only until enough live data exists)
+  const batKwh   = facility?.battery_kwh ?? 500
+  const peakKw   = 420
+  const cheapE   = 8 * (facility?.avg_load_kw ?? 300)
+  const arb      = Math.min(cheapE, batKwh) * (tariff.peak - tariff.cheap) * 0.35
+  const demSav   = peakKw * 0.15 * tariff.demand_per_kw / 30
+  const projDaily = arb + demSav
+
+  const daily   = measured ? shadow!.avg_daily_rs        : projDaily
+  const monthly = measured ? shadow!.projected_monthly_rs : projDaily * 30
+  const annual  = measured ? shadow!.projected_annual_rs  : projDaily * 365
+  const payback = SYSTEM_COST / Math.max(1, monthly)
+
+  const inr = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 })
 
   const CARDS = [
-    { label: "Daily Saving",    value: `₹${daily.toLocaleString("en-IN", { maximumFractionDigits: 0 })}`,     sub: "arbitrage + demand charge" },
-    { label: "Monthly Saving",  value: `₹${(monthly / 1000).toFixed(1)}K`,                                   sub: "projected" },
-    { label: "Annual Saving",   value: `₹${(annual / 100000).toFixed(1)}L`,                                  sub: "projected" },
-    { label: "Payback Period",  value: `${payback.toFixed(1)} months`,                                        sub: "at ₹40L system cost" },
+    measured
+      ? { label: `Saved · last ${shadow!.days_evaluated}d`, value: `₹${inr(shadow!.total_savings_rs)}`, sub: "measured on your data" }
+      : { label: "Daily Saving", value: `₹${inr(daily)}`, sub: "arbitrage + demand charge" },
+    { label: measured ? "Avg / day" : "Monthly Saving", value: measured ? `₹${inr(daily)}` : `₹${(monthly / 1000).toFixed(1)}K`, sub: measured ? "per evaluated day" : "projected" },
+    { label: "Monthly",  value: `₹${(monthly / 1000).toFixed(1)}K`,    sub: measured ? "projected from avg" : "projected" },
+    { label: "Payback",  value: `${payback.toFixed(1)} mo`,            sub: `at ₹${(SYSTEM_COST / 100000).toFixed(0)}L system` },
   ]
 
   const hours = Array.from({ length: 24 }, (_, h) => ({
@@ -37,13 +54,18 @@ export default function SavingsPage() {
     period: tariff.cheap_hours.includes(h) ? "cheap" : tariff.peak_hours.includes(h) ? "peak" : "normal",
   }))
 
+  const now = new Date().getHours()
+  const maxDay = measured ? Math.max(...shadow!.daily.map(d => d.savings_rs), 1) : 1
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Savings Calculator</h1>
+          <h1 className="text-xl font-bold text-white">Savings</h1>
           <p className="font-mono text-[10px] text-muted tracking-widest uppercase mt-0.5">
-            India ToD Tariff · Arbitrage + Demand Charge Reduction
+            {measured
+              ? `Measured · last ${shadow!.days_evaluated} days of your data`
+              : "Projected · connect a meter for measured savings"}
           </p>
         </div>
         {facilityList && facilityList.length > 1 && (
@@ -52,6 +74,18 @@ export default function SavingsPage() {
             {facilityList.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
           </select>
         )}
+      </div>
+
+      {/* Mode banner — honest about measured vs projected */}
+      <div className={`flex items-center gap-3 rounded-xl px-5 py-3 border ${
+        measured ? "bg-emerald-500/7 border-emerald-500/20" : "bg-blue-500/7 border-blue-500/20"
+      }`}>
+        <span className={measured ? "text-emerald-400 text-lg" : "text-blue-400 text-lg"}>{measured ? "✓" : "ℹ"}</span>
+        <p className={`text-sm ${measured ? "text-emerald-400" : "text-blue-400"}`}>
+          {measured
+            ? `These are realized savings — each past day's actual load and solar replayed through the optimizer.`
+            : `Not enough live data yet — showing a projection. Numbers become measured once a meter feeds in real readings.`}
+        </p>
       </div>
 
       {/* Saving cards */}
@@ -65,6 +99,26 @@ export default function SavingsPage() {
           </div>
         ))}
       </div>
+
+      {/* Daily measured savings */}
+      {measured && shadow!.daily.length > 0 && (
+        <div>
+          <p className="sec-label">Daily Savings — Last {shadow!.daily.length} Days</p>
+          <div className="bg-panel border border-border rounded-xl p-4">
+            <div className="flex gap-1 h-24 items-end">
+              {shadow!.daily.map(d => (
+                <div key={d.date} className="flex-1 flex flex-col items-center justify-end" title={`${d.date}: ₹${inr(d.savings_rs)} saved (baseline ₹${inr(d.baseline_rs)} → ₹${inr(d.optimized_rs)})`}>
+                  <div className="w-full rounded-sm bg-emerald-500/60 hover:bg-emerald-500/80 transition-all"
+                       style={{ height: `${(d.savings_rs / maxDay) * 100}%` }} />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted mt-3 font-mono">
+              Total ₹{inr(shadow!.total_savings_rs)} over {shadow!.days_evaluated} days · avg ₹{inr(shadow!.avg_daily_rs)}/day
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tariff breakdown */}
       <div>
