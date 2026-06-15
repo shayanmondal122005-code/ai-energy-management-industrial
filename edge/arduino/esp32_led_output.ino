@@ -12,6 +12,13 @@
  * a real relay/contactor, drive it from the same `charging`/`discharging`
  * flags instead of (or alongside) the LED.
  *
+ * OFFLINE HANDLING: if the cloud link goes stale (no successful poll for
+ * STALE_MS), the LED switches to a slow "heartbeat" so a dead link is never
+ * mistaken for a live decision — it never freezes on a stale command.
+ * NOTE: this is an INDICATOR. A real CONTROLLER must also run LOCAL safety
+ * rules when offline (force-charge on low SoC, never shed ICU, hardware
+ * watchdog) — see prakriti_esp32.ino's cloudOnline fallback for the pattern.
+ *
  * Library: ArduinoJson.  Board: any ESP32 dev board.
  * LED: GPIO2 is the onboard LED on most ESP32 devkits. For an external
  * LED use any GPIO -> 220Ω -> LED -> GND and set LED_PIN to that pin.
@@ -32,11 +39,13 @@ const char* DEVICE_KEY = "dk_REPLACE_WITH_YOUR_MINTED_KEY";
 const int LED_PIN = 2;                  // onboard LED on most ESP32 devkits
 
 const unsigned long POLL_EVERY_MS  = 2000;   // ask the brain every 2 s
-const unsigned long BLINK_EVERY_MS = 250;    // discharge blink rate
+const unsigned long BLINK_EVERY_MS = 250;    // discharge blink rate (fast)
+const unsigned long STALE_MS       = 15000;  // no good poll for this long = OFFLINE
+const unsigned long BEAT_EVERY_MS  = 1200;   // offline heartbeat rate (slow)
 
 // ── State ───────────────────────────────────────────────────────
 bool charging = false, discharging = false;
-unsigned long lastPoll = 0, lastBlink = 0;
+unsigned long lastPoll = 0, lastBlink = 0, lastOkMs = 0;
 bool blinkOn = false;
 
 // ────────────────────────────────────────────────────────────────
@@ -68,6 +77,7 @@ void pollCommands() {
     if (!deserializeJson(doc, https.getString())) {
       charging    = doc["grid_charge_relay"] | false;
       discharging = doc["battery_discharge"] | false;
+      lastOkMs    = millis();                 // mark the cloud link as alive
       Serial.printf("brain: charge=%d discharge=%d\n", charging, discharging);
     }
   } else {
@@ -77,13 +87,25 @@ void pollCommands() {
 }
 
 void driveLed() {
+  // OFFLINE: no successful poll within STALE_MS → don't trust the last command.
+  // Show a slow heartbeat so a dead link is obvious, never a frozen stale state.
+  bool online = (lastOkMs != 0) && (millis() - lastOkMs < STALE_MS);
+  if (!online) {
+    if (millis() - lastBlink >= BEAT_EVERY_MS) {
+      lastBlink = millis();
+      blinkOn = !blinkOn;
+      digitalWrite(LED_PIN, blinkOn ? HIGH : LOW);  // slow blink = OFFLINE
+    }
+    return;
+  }
+
   if (charging) {
     digitalWrite(LED_PIN, HIGH);                 // solid = charging
   } else if (discharging) {
     if (millis() - lastBlink >= BLINK_EVERY_MS) {
       lastBlink = millis();
       blinkOn = !blinkOn;
-      digitalWrite(LED_PIN, blinkOn ? HIGH : LOW);  // blink = discharging
+      digitalWrite(LED_PIN, blinkOn ? HIGH : LOW);  // fast blink = discharging
     }
   } else {
     digitalWrite(LED_PIN, LOW);                  // off = idle
