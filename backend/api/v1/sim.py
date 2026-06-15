@@ -22,6 +22,7 @@ from backend.core.cache import get_redis
 from backend.core.database import get_db
 from backend.core.security import CurrentUser, get_current_user, hash_api_key, verify_api_key
 from backend.services.forecast_service import get_load_forecast
+from backend.services.telemetry_bridge import telemetry_to_reading
 
 router = APIRouter()
 
@@ -301,6 +302,32 @@ async def sim_ingest(payload: SimTelemetry, request: Request, db: AsyncSession =
             "circuits": circuits_json,
         },
     )
+
+    # ── Bridge: mirror this sample into the facility `readings` table so the
+    # shadow-savings page and history charts see real device data. No-op unless
+    # this site_id is mapped to a facility (facilities.site_id). Wrapped in a
+    # SAVEPOINT so a mapping miss — or the site_id column not existing yet —
+    # can NEVER roll back the telemetry insert above.
+    try:
+        async with db.begin_nested():
+            fac = (await db.execute(
+                text("SELECT id FROM facilities WHERE site_id = :sid AND is_active = true LIMIT 1"),
+                {"sid": payload.site_id},
+            )).first()
+            if fac is not None:
+                fields = telemetry_to_reading(payload.total_load_w, payload.solar_w, payload.soc_pct)
+                await db.execute(
+                    text("""
+                        INSERT INTO readings
+                            (facility_id, timestamp, load_kw, solar_kw, battery_soc, grid_kw, net_kw, source)
+                        VALUES
+                            (:fid, now(), :load_kw, :solar_kw, :battery_soc, :grid_kw, :net_kw, 'meter')
+                    """),
+                    {"fid": str(fac.id), **fields},
+                )
+    except Exception:
+        pass  # bridge is best-effort; telemetry is already persisted
+
     # get_db commits on success
 
     # Cache the latest reading + run the cloud brain to set the next command
