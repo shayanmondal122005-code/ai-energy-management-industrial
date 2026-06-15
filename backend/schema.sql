@@ -22,10 +22,12 @@ CREATE TABLE IF NOT EXISTS facilities (
   solar_kw     DOUBLE PRECISION NOT NULL DEFAULT 200,
   avg_load_kw  DOUBLE PRECISION NOT NULL DEFAULT 300,
   timezone     TEXT NOT NULL DEFAULT 'Asia/Kolkata',
+  site_id      TEXT,                 -- maps an edge device's site_id to this facility (telemetry->readings bridge)
   is_active    BOOLEAN NOT NULL DEFAULT TRUE,
   created_at   TIMESTAMPTZ DEFAULT NOW(),
   updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_facilities_site_id ON facilities (site_id) WHERE site_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS users (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
