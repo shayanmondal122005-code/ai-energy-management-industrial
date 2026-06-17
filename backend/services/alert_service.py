@@ -6,12 +6,15 @@ from uuid import UUID
 logger = logging.getLogger(__name__)
 
 
+# pf_threshold / pf_penalty_pct model the industrial power-factor penalty:
+# pf_penalty_pct % of (energy + demand) charges for each 0.01 of PF below
+# pf_threshold. Approximate per-DISCOM defaults — confirm vs the actual tariff order.
 INDIA_TARIFFS = {
-    "West Bengal - CESC"    : {"cheap": 4.20, "normal": 6.10, "peak": 7.85, "demand_per_kw": 320, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,23))},
-    "Maharashtra - MSEDCL"  : {"cheap": 3.80, "normal": 5.90, "peak": 8.20, "demand_per_kw": 280, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,22))},
-    "Tamil Nadu - TANGEDCO" : {"cheap": 4.50, "normal": 6.40, "peak": 8.10, "demand_per_kw": 350, "cheap_hours": list(range(10,17)), "peak_hours": list(range(18,23))},
-    "Karnataka - BESCOM"    : {"cheap": 4.10, "normal": 6.00, "peak": 7.70, "demand_per_kw": 295, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,22))},
-    "Delhi - BSES/TPDDL"    : {"cheap": 3.90, "normal": 5.80, "peak": 7.50, "demand_per_kw": 260, "cheap_hours": list(range(10,16)), "peak_hours": list(range(17,22))},
+    "West Bengal - CESC"    : {"cheap": 4.20, "normal": 6.10, "peak": 7.85, "demand_per_kw": 320, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,23)), "pf_threshold": 0.95, "pf_penalty_pct": 1.0},
+    "Maharashtra - MSEDCL"  : {"cheap": 3.80, "normal": 5.90, "peak": 8.20, "demand_per_kw": 280, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,22)), "pf_threshold": 0.95, "pf_penalty_pct": 1.0},
+    "Tamil Nadu - TANGEDCO" : {"cheap": 4.50, "normal": 6.40, "peak": 8.10, "demand_per_kw": 350, "cheap_hours": list(range(10,17)), "peak_hours": list(range(18,23)), "pf_threshold": 0.95, "pf_penalty_pct": 1.0},
+    "Karnataka - BESCOM"    : {"cheap": 4.10, "normal": 6.00, "peak": 7.70, "demand_per_kw": 295, "cheap_hours": list(range(10,16)), "peak_hours": list(range(18,22)), "pf_threshold": 0.90, "pf_penalty_pct": 1.0},
+    "Delhi - BSES/TPDDL"    : {"cheap": 3.90, "normal": 5.80, "peak": 7.50, "demand_per_kw": 260, "cheap_hours": list(range(10,16)), "peak_hours": list(range(17,22)), "pf_threshold": 0.95, "pf_penalty_pct": 1.0},
 }
 
 
