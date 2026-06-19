@@ -34,7 +34,7 @@ const char* WIFI_SSID  = "YOUR_WIFI_NAME";
 const char* WIFI_PASS  = "YOUR_WIFI_PASSWORD";
 const char* BASE_URL   = "https://ai-energy-management-industrial-production.up.railway.app";
 const char* SITE_ID    = "sim-hospital-01";
-const char* DEVICE_KEY = "dk_REPLACE_WITH_YOUR_MINTED_KEY";
+const char* DEVICE_KEY = "dk_102bf365db58_17fe6b122c568ccc034a5f1fc83ce6fc68f97043baa8d45b"; // sim-hospital-01 demo key — ROTATE before any real pilot
 
 const int LED_PIN = 2;                  // onboard LED on most ESP32 devkits
 

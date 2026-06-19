@@ -75,6 +75,8 @@ Register every meaningful change here so this file stays the running record.
 - **#7 Edge demo (meter-less loop)**: `edge/feeder/laptop_feeder.py` (laptop = meter, closed loop, verified
   live), `edge/arduino/esp32_led_output.ino` (LED = relay: solid=charge, blink=discharge), `esp32_meter_bringup.ino`.
 - **#8** LED firmware: slow heartbeat when cloud link stale (never freezes on old command).
+- LED firmware DEVICE_KEY pre-filled with the sim-hospital-01 demo key (matches laptop_feeder.py) so the
+  demo flashes with only WiFi to edit. Key verified live (HTTP 200). Rotate before any real pilot.
 - **#9 Telemetry→readings bridge** (`sim.py` + `services/telemetry_bridge.py`): mirrors device telemetry into
   `readings` when `facilities.site_id` matches device site. SAVEPOINT-isolated; no-op until mapped. Needs
   `backend/migrations/2026_06_add_facility_site_id.sql` run on Supabase + `docs/PILOT-ONBOARDING.md`.
