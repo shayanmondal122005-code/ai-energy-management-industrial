@@ -111,7 +111,9 @@ def main():
         if charging:    charge_w += MAX_CHARGE_W
         discharge_w = MAX_DISCHARGE_W if (discharging and ld > sol) else 0.0
         d_soc = (charge_w - discharge_w) * (SIM_STEP_H) / BATTERY_WH * 100.0
-        soc = max(5.0, min(100.0, soc + d_soc))
+        # Band SoC to 20-90% for battery longevity (avoid 100% hold / deep discharge),
+        # same spirit as the real optimizer's 15-95% limits.
+        soc = max(20.0, min(90.0, soc + d_soc))
 
         act = "CHARGE" if charging else "DISCHARGE" if discharging else "hold"
         flag = "ok" if ok else "POST FAILED"
