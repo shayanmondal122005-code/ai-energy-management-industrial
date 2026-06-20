@@ -84,6 +84,15 @@ Register every meaningful change here so this file stays the running record.
   power-factor penalty + kVA-demand calc. Usable for bill audit now; goes live once PF is stored (readings/telemetry
   don't carry PF yet — follow-up).
 
+### 2026-06-20 — edge demo session
+- ESP32 LED firmware (`esp32_led_output.ino`) reworked into a 6-LED relay panel (one LED per relay command:
+  GPIO 25 GRID, 26 SOLAR, 27 BATT, 14 DG, 33 CHARGE, 32 DISCHARGE; onboard GPIO2 = link status) and made
+  LIBRARY-FREE (jsonBool parser, no ArduinoJson). NOTE: the on-machine copy holds Shayan's WiFi creds and is
+  intentionally UNCOMMITTED (password kept out of git) — repo copy still single-LED + needs a placeholder-creds sync.
+- `laptop_feeder.py`: SoC banded to 20-90% (was clamping to 100%). Shayan correctly flagged 100% hold harms battery
+  life; real optimizer already caps 15-95% + degradation penalty, so 100% was only the toy feeder overshooting.
+- Reminder: ESP32 is 2.4GHz only; demo needs internet on both laptop + ESP32 (brain is cloud-side).
+
 ### Hardware / electrician deliverables (generators live in the `prj` working folder, not this repo)
 - `MicroGrid_wiring_sheets.pdf` — sheet 1 grid meter (electrician), sheet 2 control panel (EPC).
 - `MicroGrid_solar_meter_sheet.pdf` — solar generation meter on PV inverter output (only if inverter unreadable).
