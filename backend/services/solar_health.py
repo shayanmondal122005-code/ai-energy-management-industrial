@@ -2,7 +2,7 @@
 Preserves all existing physics logic from the prototype exactly.
 """
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -116,5 +116,5 @@ def run_solar_health(readings: list[Any], solar_cap: float = 200.0) -> dict:
         "alerts_count": len(alerts),
         "alerts": alerts,
         "performance_ratio": round(pr, 3),
-        "checked_at": datetime.utcnow().isoformat(),
+        "checked_at": datetime.now(timezone.utc).isoformat(),
     }
