@@ -1,0 +1,19 @@
+{
+  "name": "Representative mid-size Indian hospital (24/7)",
+  "peak_load_kw": 500,
+  "monthly_consumption_kwh": 280000,
+  "solar_kwp": 250,
+  "solar_daily_kwh": 1100,
+  "battery_kwh": 500,
+  "battery_inverter_kw": 250,
+  "round_trip_efficiency": 0.90,
+  "soc_floor_pct": 20,
+  "soc_ceiling_pct": 90,
+  "sanctioned_demand_kva": 600,
+  "assumed_power_factor": 0.85,
+  "ems_corrects_pf_to": 0.96,
+  "tariff_state": "West Bengal - CESC",
+  "days_in_month": 30,
+  "target_monthly_savings_inr": 150000,
+  "_notes": "solar_daily_kwh ~1100 reflects a 250kWp array in Kolkata (~4.4 kWh/kWp). ems_corrects_pf_to assumes the battery inverter provides reactive support OR a recommended capacitor bank lifts PF above the 0.95 penalty threshold."
+}

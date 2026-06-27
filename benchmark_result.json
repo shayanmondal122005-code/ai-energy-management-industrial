@@ -1,0 +1,45 @@
+{
+  "monthly_savings_inr": 197645,
+  "baseline_inr": 1836299,
+  "optimized_inr": 1638654,
+  "target_inr": 150000,
+  "target_met": true,
+  "savings_breakdown_inr": {
+    "energy_arbitrage_inr": 19446,
+    "demand_shaving_inr": 24192,
+    "pf_correction_inr": 166936,
+    "battery_wear_inr": -12930
+  },
+  "safety_violations": 0,
+  "optimizer_status": "optimal",
+  "assumptions": {
+    "name": "Representative mid-size Indian hospital (24/7)",
+    "peak_load_kw": 500,
+    "monthly_consumption_kwh": 280000,
+    "solar_kwp": 250,
+    "solar_daily_kwh": 1100,
+    "battery_kwh": 500,
+    "battery_inverter_kw": 250,
+    "round_trip_efficiency": 0.9,
+    "soc_floor_pct": 20,
+    "soc_ceiling_pct": 90,
+    "sanctioned_demand_kva": 600,
+    "assumed_power_factor": 0.85,
+    "ems_corrects_pf_to": 0.96,
+    "tariff_state": "West Bengal - CESC",
+    "days_in_month": 30,
+    "target_monthly_savings_inr": 150000,
+    "tariff": {
+      "cheap": 4.2,
+      "normal": 6.1,
+      "peak": 7.85,
+      "demand_per_kw": 320.0,
+      "pf_threshold": 0.95,
+      "pf_penalty_pct": 1.0
+    },
+    "actual_monthly_load_kwh": 279999,
+    "actual_daily_solar_kwh": 1100.1,
+    "baseline_peak_kw": 474.3,
+    "optimized_peak_kw": 398.7
+  }
+}
