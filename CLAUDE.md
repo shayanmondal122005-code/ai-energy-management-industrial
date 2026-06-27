@@ -93,6 +93,17 @@ Register every meaningful change here so this file stays the running record.
   life; real optimizer already caps 15-95% + degradation penalty, so 100% was only the toy feeder overshooting.
 - Reminder: ESP32 is 2.4GHz only; demo needs internet on both laptop + ESP32 (brain is cloud-side).
 
+### 2026-06-20 — PF advisory module
+- `backend/services/pf_advisor.py` (+ `test_pf_advisor.py`, 9 tests): the EMS's PF *intelligence* layer.
+  PF is corrected by HARDWARE (capacitor bank — DISCOM-mandated — or 4-quadrant inverter); software doesn't
+  correct PF itself. Module: `capacitor_kvar_required` (size the bank), `kvah_pf_premium_rs` (cost on kVAh-billed
+  tariffs like Jharkhand), `pf_health` (monitor/alert when correction degrades), `pf_advice` (top-level).
+  Reactive INVERTER control is GATED behind `reactive_capable=False` (default) — NEVER emits a command without a
+  confirmed 4-quadrant inverter; otherwise returns control_mode="advisory" (recommend + monitor a capacitor bank).
+- Tariff insight (verified from JSERC JBVNL FY2026-27 order): Jharkhand HT = flat Rs6.40/kVAh + Rs400/kVA, NO ToD,
+  Load Factor Rebate <=15%. So battery ARBITRAGE earns ~0 in Jharkhand; EMS value = demand shaving + the
+  load-factor rebate that peak-flattening unlocks (~Rs1.3L); PF/kVAh (~Rs2.1L) is the mandated capacitor bank.
+
 ### Hardware / electrician deliverables (generators live in the `prj` working folder, not this repo)
 - `MicroGrid_wiring_sheets.pdf` — sheet 1 grid meter (electrician), sheet 2 control panel (EPC).
 - `MicroGrid_solar_meter_sheet.pdf` — solar generation meter on PV inverter output (only if inverter unreadable).
