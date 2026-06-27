@@ -65,6 +65,36 @@ class OptimalScheduleV2:
     summary:         list[dict] = field(default_factory=list)
 
 
+def _validate_inputs(load, solar, tariff, soc, battery_kwh) -> str | None:
+    """Return a reason string if inputs are unsafe/malformed, else None."""
+    import math
+    for name, arr in (("load", load), ("solar", solar), ("tariff", tariff)):
+        if not isinstance(arr, (list, tuple)) or len(arr) != N:
+            return f"{name} must be a length-{N} sequence"
+        for v in arr:
+            if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+                return f"{name} contains a non-finite value"
+        if name in ("load", "solar") and any(v < 0 for v in arr):
+            return f"{name} contains a negative value"
+    if not isinstance(soc, (int, float)) or isinstance(soc, bool) or not (0.0 <= soc <= 1.0):
+        return "current_soc must be a number in [0, 1]"
+    if not isinstance(battery_kwh, (int, float)) or battery_kwh <= 0:
+        return "battery_kwh must be > 0"
+    return None
+
+
+def _safe_noop(status: str) -> OptimalScheduleV2:
+    """Fail-safe 'no action' schedule — battery idle, zero everything. Used when
+    inputs are invalid so the optimizer NEVER returns an undefined/unsafe state."""
+    z = [0.0] * N
+    return OptimalScheduleV2(
+        grid_kw=z[:], charge_kw=z[:], discharge_kw=z[:], soc_trace=[0.0] * (N + 1),
+        peak_grid_kw=0.0, cost_energy=0.0, cost_demand=0.0, cost_degradation=0.0,
+        cost_total=0.0, cost_baseline=0.0, savings=0.0,
+        grid_charge_kwh=0.0, solar_charge_kwh=0.0, status=status, summary=[],
+    )
+
+
 def optimize_dispatch_v2(
     load_forecast:    list[float],
     solar_forecast:   list[float],
@@ -81,13 +111,23 @@ def optimize_dispatch_v2(
     month_peak_so_far_kw: float = 0.0,     # month-to-date peak grid draw
     degradation_cost: float = DEFAULT_DEGRADATION_COST,
     safety_margin:    float = DEFAULT_SAFETY_MARGIN,
+    max_grid_kw:      float | None = None,  # sanctioned grid-import limit (kW); None = unlimited
 ) -> OptimalScheduleV2:
     """
     Solve the full cost-minimization LP and return optimal schedule.
 
     The solver automatically decides whether to charge the battery from
     solar surplus OR cheap grid import — whichever minimizes total cost.
+
+    RECOMMENDATION ONLY: returns a setpoint schedule. It never emits a control
+    or IEC 61850 switching command — actuation is a separate, gated layer.
     """
+    # ── Fail-safe validation: bad/missing input → "no action", never unsafe ──
+    bad = _validate_inputs(load_forecast, solar_forecast, tariff_schedule, current_soc, battery_kwh)
+    if bad is not None:
+        logger.warning("optimize_dispatch_v2 rejected input (%s) — returning no-action", bad)
+        return _safe_noop(f"invalid_input: {bad}")
+
     T  = N
     # Variables: g[T] + c[T] + d[T] + s[T+1] + peak_excess[1]
     NV = 3 * T + (T + 1) + 1
@@ -146,8 +186,9 @@ def optimize_dispatch_v2(
     # ── Bounds ───────────────────────────────────────────────
     eff_min_soc = min(min_soc + safety_margin, max_soc - 0.01)
     bounds = []
+    g_hi = max_grid_kw if (max_grid_kw is not None and max_grid_kw > 0) else None
     for h in range(T):
-        bounds.append((0.0, None))                 # grid ≥ 0
+        bounds.append((0.0, g_hi))                 # 0 ≤ grid ≤ sanctioned limit (if set)
     for h in range(T):
         bounds.append((0.0, max_charge_kw))        # charge
     for h in range(T):
@@ -175,7 +216,7 @@ def optimize_dispatch_v2(
                 load_forecast, solar_forecast, tariff_schedule, current_soc,
                 battery_kwh, max_charge_kw, max_discharge_kw, charge_eff, discharge_eff,
                 min_soc, max_soc, demand_charge_per_kw, month_peak_so_far_kw,
-                degradation_cost, safety_margin=0.0,
+                degradation_cost, safety_margin=0.0, max_grid_kw=max_grid_kw,
             )
         return _fallback_v2(load_forecast, solar_forecast, tariff_schedule, current_soc,
                             battery_kwh, demand_charge_per_kw)
