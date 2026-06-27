@@ -2,6 +2,7 @@
 import logging
 import math
 from dataclasses import asdict
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -158,6 +159,13 @@ async def run_optimizer(
             "hour_base"   : hour_now,
         },
         ttl_seconds=86400,  # valid for 24 hours
+    )
+
+    # Audit: log every recommendation with tenant + facility + timestamp.
+    logger.info(
+        "AUDIT optimize_recommendation facility=%s tenant=%s status=%s savings_inr=%s ts=%s",
+        facility_id, current_user.tenant_id, schedule.status, schedule.savings,
+        datetime.now(timezone.utc).isoformat(),
     )
 
     return result
