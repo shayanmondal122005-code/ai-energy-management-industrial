@@ -129,6 +129,15 @@ Register every meaningful change here so this file stays the running record.
   (run rate = month_kwh / day-of-month). NOTE: the raw SQL in get_solar_generation is Postgres-only (FILTER/date_trunc),
   so it is still integration-tested against prod, not in CI — but its kWh math is now covered.
 
+- **Optimizer solar curtailment/export** (`backend/services/optimizer_v2.py` + 6 new tests): added a per-hour solar
+  SPILL variable to the LP power balance (`load = solar + grid + discharge − charge − spill`), so a high-solar day can
+  NEVER be infeasible (the known bug: surplus solar had nowhere to go once the battery filled). Spill is bounded by
+  that hour's solar. By DEFAULT spill is CURTAILED (wasted, 0 value) → `solar_curtailed_kwh`; only when
+  `export_allowed=True` AND `export_rate>0` is it credited as `solar_exported_kwh` + `export_value_rs` (subtracted from
+  cost_total) — same capability-gating as pf_advisor, because most India C&I has no/zero feed-in. The LP still prefers
+  self-consumption + storage over spilling when there's an economic reason to store. New fields also surfaced in the
+  `GET /facilities/{id}/optimize` response. Existing optimizer tests unaffected (their scenarios are solar-poor → spill=0).
+
 ### Open follow-ups
 - Store PF from the meter (firmware read + a `pf` column) so PF penalty runs on live data.
 - Weekly PDF report (still a stub: `tasks.py:384`, `reports.py`).

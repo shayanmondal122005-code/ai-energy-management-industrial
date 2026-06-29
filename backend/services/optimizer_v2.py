@@ -63,6 +63,11 @@ class OptimalScheduleV2:
     solar_charge_kwh:float          # how much battery charged from solar
     status:          str
     summary:         list[dict] = field(default_factory=list)
+    # Solar spill accounting — excess solar that on-site load + battery couldn't absorb.
+    solar_spilled_kwh:   float = 0.0  # total excess solar (exported + curtailed)
+    solar_exported_kwh:  float = 0.0  # spill sold to grid (only if export_allowed)
+    solar_curtailed_kwh: float = 0.0  # spill wasted (no export path) — pure loss
+    export_value_rs:     float = 0.0  # ₹ earned from exported spill
 
 
 def optimize_dispatch_v2(
@@ -81,22 +86,32 @@ def optimize_dispatch_v2(
     month_peak_so_far_kw: float = 0.0,     # month-to-date peak grid draw
     degradation_cost: float = DEFAULT_DEGRADATION_COST,
     safety_margin:    float = DEFAULT_SAFETY_MARGIN,
+    export_rate:      float = 0.0,     # ₹/kWh paid for solar exported to grid
+    export_allowed:   bool  = False,   # GATED: most India C&I has no/zero export — default off
 ) -> OptimalScheduleV2:
     """
     Solve the full cost-minimization LP and return optimal schedule.
 
     The solver automatically decides whether to charge the battery from
     solar surplus OR cheap grid import — whichever minimizes total cost.
+
+    A solar SPILL variable absorbs excess solar that on-site load + battery can't
+    take, so a high-solar day can never be infeasible. By default spill is
+    CURTAILED (wasted, no value); only when export_allowed AND export_rate>0 is
+    spill credited as export revenue — we don't assume a feed-in tariff that the
+    connection may not have.
     """
     T  = N
-    # Variables: g[T] + c[T] + d[T] + s[T+1] + peak_excess[1]
-    NV = 3 * T + (T + 1) + 1
-    PEAK_IDX = 3 * T + (T + 1)   # index of peak_excess scalar
+    eff_export_rate = float(export_rate) if export_allowed else 0.0
+    # Variables: g[T] + c[T] + d[T] + spill[T] + s[T+1] + peak_excess[1]
+    NV = 4 * T + (T + 1) + 1
+    PEAK_IDX = 4 * T + (T + 1)   # index of peak_excess scalar
 
     g_idx = lambda h: h
     c_idx = lambda h: T + h
     d_idx = lambda h: 2 * T + h
-    s_idx = lambda h: 3 * T + h
+    e_idx = lambda h: 3 * T + h        # solar spill (export or curtail)
+    s_idx = lambda h: 4 * T + h
 
     # Amortize monthly demand charge to this single day (÷30)
     demand_daily = demand_charge_per_kw / 30.0
@@ -109,6 +124,10 @@ def optimize_dispatch_v2(
         # (8000 / (6000 × 0.8)). Penalising charge AND discharge double-counts
         # a single charge→discharge cycle and wrongly kills economic arbitrage.
         obj[d_idx(h)] = degradation_cost                  # wear per kWh discharged
+        # Exported spill earns revenue → negative cost. Curtailed spill (default)
+        # has 0 coefficient: free to dump, but no value — so the LP still prefers
+        # self-consumption and battery storage over wasting solar.
+        obj[e_idx(h)] = -eff_export_rate
     obj[PEAK_IDX] = demand_daily                          # demand charge
 
     # ── Equality constraints: power balance + SoC dynamics + initial SoC ──
@@ -117,10 +136,12 @@ def optimize_dispatch_v2(
     b_eq = np.zeros(n_eq)
 
     for h in range(T):
-        # load = solar + grid + discharge - charge
+        # load = solar + grid + discharge - charge - spill
+        #   → grid + discharge - charge - spill = load - solar
         A_eq[h, g_idx(h)] =  1.0
         A_eq[h, d_idx(h)] =  1.0
         A_eq[h, c_idx(h)] = -1.0
+        A_eq[h, e_idx(h)] = -1.0          # spill absorbs excess solar → always feasible
         b_eq[h] = float(load_forecast[h]) - float(solar_forecast[h])
 
     for h in range(T):
@@ -152,6 +173,9 @@ def optimize_dispatch_v2(
         bounds.append((0.0, max_charge_kw))        # charge
     for h in range(T):
         bounds.append((0.0, max_discharge_kw))     # discharge
+    for h in range(T):
+        # spill ≤ this hour's solar (can't dump more solar than is generated)
+        bounds.append((0.0, max(0.0, float(solar_forecast[h]))))   # solar spill
     # Terminal SoC must not end below the starting SoC. Otherwise the optimizer
     # "saves" money by permanently draining pre-stored energy — not a real or
     # sustainable daily saving. This makes daily cycling honest and comparable.
@@ -176,6 +200,7 @@ def optimize_dispatch_v2(
                 battery_kwh, max_charge_kw, max_discharge_kw, charge_eff, discharge_eff,
                 min_soc, max_soc, demand_charge_per_kw, month_peak_so_far_kw,
                 degradation_cost, safety_margin=0.0,
+                export_rate=export_rate, export_allowed=export_allowed,
             )
         return _fallback_v2(load_forecast, solar_forecast, tariff_schedule, current_soc,
                             battery_kwh, demand_charge_per_kw)
@@ -184,15 +209,27 @@ def optimize_dispatch_v2(
     grid_kw      = [max(0.0, round(x[g_idx(h)], 1)) for h in range(T)]
     charge_kw    = [max(0.0, round(x[c_idx(h)], 1)) for h in range(T)]
     discharge_kw = [max(0.0, round(x[d_idx(h)], 1)) for h in range(T)]
+    spill_kw     = [max(0.0, round(x[e_idx(h)], 1)) for h in range(T)]
     soc_trace    = [round(x[s_idx(h)] * 100, 1) for h in range(T + 1)]
     peak_excess  = max(0.0, x[PEAK_IDX])
     peak_grid    = max(grid_kw)
+
+    # ── Solar spill accounting (exported vs curtailed) ───────
+    solar_spilled_kwh = sum(spill_kw)
+    if eff_export_rate > 0:
+        solar_exported_kwh  = solar_spilled_kwh
+        solar_curtailed_kwh = 0.0
+        export_value_rs     = solar_spilled_kwh * eff_export_rate
+    else:
+        solar_exported_kwh  = 0.0
+        solar_curtailed_kwh = solar_spilled_kwh   # no export path → pure loss
+        export_value_rs     = 0.0
 
     # ── Cost breakdown ───────────────────────────────────────
     cost_energy = sum(grid_kw[h] * tariff_schedule[h] for h in range(T))
     cost_demand = peak_excess * demand_daily
     cost_degr   = degradation_cost * sum(discharge_kw[h] for h in range(T))
-    cost_total  = cost_energy + cost_demand + cost_degr
+    cost_total  = cost_energy + cost_demand + cost_degr - export_value_rs
 
     # Baseline: no battery, grid follows net load, peak unmanaged
     base_grid   = [max(0.0, load_forecast[h] - solar_forecast[h]) for h in range(T)]
@@ -230,6 +267,10 @@ def optimize_dispatch_v2(
         grid_charge_kwh=round(grid_charge_kwh, 1),
         solar_charge_kwh=round(solar_charge_kwh, 1),
         status="optimal", summary=summary,
+        solar_spilled_kwh=round(solar_spilled_kwh, 1),
+        solar_exported_kwh=round(solar_exported_kwh, 1),
+        solar_curtailed_kwh=round(solar_curtailed_kwh, 1),
+        export_value_rs=round(export_value_rs, 0),
     )
 
 
