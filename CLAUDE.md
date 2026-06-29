@@ -120,6 +120,15 @@ Register every meaningful change here so this file stays the running record.
   Endpoint `GET /facilities/{id}/solar/cleaning-roi?cleaning_cost_rs=&days_since_clean=` in `api/v1/alerts.py`
   (reuses run_solar_health PR + get_solar_generation today_kwh + facility.state_tariff normal rate).
 
+- **Solar ROI / payback tracker** (`backend/services/solar_roi.py` + `test_solar_roi.py`, 9 tests): rolls lifetime
+  solar kWh into the investor view — `value_to_date_rs`, `recovered_pct` (capped 100), `remaining_rs`, lifetime CO₂ +
+  trees-equivalent, and a straight-line `payback_eta_days/years` from the recent run rate. Value = self-consumed kWh
+  at the NORMAL grid rate (measured generation only; no sunnier-future assumption). Also lifted the previously
+  UNTESTED `get_solar_generation` energy math into a pure `energy_kwh(avg_kw, min_ts, max_ts)` helper (now unit-tested)
+  and wired `readings_repo` to use it. Endpoint `GET /facilities/{id}/solar/payback?system_cost_rs=` in `readings.py`
+  (run rate = month_kwh / day-of-month). NOTE: the raw SQL in get_solar_generation is Postgres-only (FILTER/date_trunc),
+  so it is still integration-tested against prod, not in CI — but its kWh math is now covered.
+
 ### Open follow-ups
 - Store PF from the meter (firmware read + a `pf` column) so PF penalty runs on live data.
 - Weekly PDF report (still a stub: `tasks.py:384`, `reports.py`).

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.database import Reading
 from backend.models.schemas import IngestResponse, ReadingIngest, SolarGenerationResponse, StatsResponse
+from backend.services.solar_roi import energy_kwh
 
 IST = timezone(timedelta(hours=5, minutes=30))
 GRID_CO2_KG_PER_KWH = 0.71  # India grid emission factor (CEA)
@@ -117,14 +118,10 @@ class ReadingsRepository:
             {"fid": str(facility_id), "day": day_start, "month": month_start},
         )).one()
 
-        def energy(avg, mn, mx) -> float:
-            if avg is None or mn is None or mx is None:
-                return 0.0
-            return float(avg) * ((mx - mn).total_seconds() / 3600)
-
-        today_kwh = energy(row.day_avg, row.day_min, row.day_max)
-        month_kwh = energy(row.mon_avg, row.mon_min, row.mon_max)
-        total_kwh = energy(row.all_avg, row.all_min, row.all_max)
+        # energy_kwh (avg power × elapsed hours) is unit-tested in services/solar_roi.py
+        today_kwh = energy_kwh(row.day_avg, row.day_min, row.day_max)
+        month_kwh = energy_kwh(row.mon_avg, row.mon_min, row.mon_max)
+        total_kwh = energy_kwh(row.all_avg, row.all_min, row.all_max)
         peak_today = float(row.day_peak or 0)
 
         return SolarGenerationResponse(

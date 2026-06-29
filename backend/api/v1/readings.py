@@ -141,6 +141,58 @@ async def solar_generation(
     return result
 
 
+@router.get("/{facility_id}/solar/payback")
+async def solar_payback(
+    facility_id: UUID,
+    system_cost_rs: float = Query(..., gt=0, description="Installed capex of the solar array (₹)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Solar ROI / payback: how much of the array's capex it has earned back, and — at the
+    recent run rate — the straight-line break-even ETA. The 'protect your investment' view.
+
+    Value is the energy the panels self-consume, priced at the facility's NORMAL grid rate
+    (the energy they offset) — measured generation only, no sunnier-future assumptions.
+    """
+    if not current_user.can_access_facility(facility_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    from datetime import datetime, timedelta, timezone
+
+    from backend.repositories.facilities_repo import FacilitiesRepository
+    from backend.services.alert_service import INDIA_TARIFFS
+    from backend.services.solar_roi import solar_payback as compute_payback
+
+    facility = await FacilitiesRepository(db).get(facility_id)
+    if facility is None:
+        raise HTTPException(status_code=404, detail="Facility not found")
+
+    gen = await ReadingsRepository(db).get_solar_generation(facility_id)
+
+    # Recent run rate for the ETA: this month's kWh spread over the days elapsed so far.
+    ist = timezone(timedelta(hours=5, minutes=30))
+    day_of_month = datetime.now(ist).day
+    recent_daily_kwh = (gen.month_kwh / day_of_month) if day_of_month > 0 and gen.month_kwh > 0 else None
+
+    tariff = INDIA_TARIFFS.get(facility.state_tariff, INDIA_TARIFFS["West Bengal - CESC"])
+    solar_value_per_kwh = float(tariff["normal"])
+
+    from dataclasses import asdict
+
+    payback = compute_payback(
+        total_kwh=gen.total_kwh,
+        system_cost_rs=system_cost_rs,
+        solar_value_per_kwh=solar_value_per_kwh,
+        recent_daily_kwh=recent_daily_kwh,
+    )
+    return {
+        "facility_id": str(facility_id),
+        "solar_value_per_kwh": solar_value_per_kwh,
+        "month_kwh": gen.month_kwh,
+        **asdict(payback),
+    }
+
+
 @router.get("/{facility_id}/stats", response_model=StatsResponse)
 async def stats(
     facility_id: UUID,
