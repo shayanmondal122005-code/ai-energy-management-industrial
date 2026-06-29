@@ -111,3 +111,63 @@ class TestOptimizerV2:
         )
         assert s.cost_total <= s.cost_baseline
         assert s.savings >= 0
+
+
+class TestSolarCurtailmentExport:
+    """The spill variable: a high-solar day must never be infeasible; excess solar is
+    curtailed by default and only credited as export when explicitly allowed."""
+
+    # Tiny, nearly-full battery + huge solar → most solar cannot be used or stored.
+    _HIGH_SOLAR = dict(
+        load_forecast=[100.0] * 24,
+        solar_forecast=[600.0] * 24,   # 500 kW/h surplus, far beyond load + charge
+        tariff_schedule=_cesc_price(),
+        current_soc=0.90,              # almost full
+        battery_kwh=100,               # small
+        max_charge_kw=50,              # can soak at most 50 kW/h
+        max_soc=0.95,
+    )
+
+    def test_high_solar_is_feasible_not_fallback(self):
+        # Without a spill variable this LP is infeasible (charge ≥ 500 but cap 50).
+        s = optimize_dispatch_v2(**self._HIGH_SOLAR)
+        assert s.status == "optimal"
+        assert s.solar_spilled_kwh > 0
+
+    def test_default_spill_is_curtailed_not_exported(self):
+        s = optimize_dispatch_v2(**self._HIGH_SOLAR)
+        assert s.solar_curtailed_kwh > 0
+        assert s.solar_exported_kwh == 0.0
+        assert s.export_value_rs == 0.0
+
+    def test_export_credited_only_when_allowed(self):
+        s = optimize_dispatch_v2(**self._HIGH_SOLAR, export_allowed=True, export_rate=3.0)
+        assert s.solar_exported_kwh > 0
+        assert s.solar_curtailed_kwh == 0.0
+        assert s.export_value_rs > 0
+
+    def test_export_lowers_total_cost(self):
+        curtail = optimize_dispatch_v2(**self._HIGH_SOLAR)
+        export  = optimize_dispatch_v2(**self._HIGH_SOLAR, export_allowed=True, export_rate=3.0)
+        # Selling the same spilled solar can only reduce (or equal) total cost.
+        assert export.cost_total <= curtail.cost_total
+
+    def test_export_rate_ignored_without_allowed_flag(self):
+        # Passing a rate but not the flag must NOT credit export (gated).
+        s = optimize_dispatch_v2(**self._HIGH_SOLAR, export_rate=3.0, export_allowed=False)
+        assert s.export_value_rs == 0.0
+        assert s.solar_exported_kwh == 0.0
+
+    def test_prefers_storing_over_spilling_when_economic(self):
+        # Midday solar surplus + an expensive evening peak with NO solar gives the
+        # battery a real reason to store: charge cheap/free midday, discharge at peak.
+        # The optimizer should store that surplus rather than spill all of it.
+        solar = [200.0 if 10 <= h <= 15 else 0.0 for h in range(24)]   # 100 kW/h midday surplus
+        load  = [100.0 + (250.0 if 18 <= h <= 22 else 0.0) for h in range(24)]  # evening peak
+        s = optimize_dispatch_v2(
+            load_forecast=load, solar_forecast=solar,
+            tariff_schedule=_cesc_price(),
+            current_soc=0.30, battery_kwh=500, max_charge_kw=150,
+        )
+        assert s.solar_charge_kwh > 0
+        assert s.solar_charge_kwh > s.solar_spilled_kwh
