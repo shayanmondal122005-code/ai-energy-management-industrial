@@ -110,6 +110,16 @@ Register every meaningful change here so this file stays the running record.
 - ESP32↔MFM384: 5V→VCC, GND→GND, GPIO17→DI, GPIO16→RO, GPIO4→DE+RE; A/B→meter; 120Ω; 9600 8N1 slave id 1.
 - Multiple meters share ONE RS485 bus (grid=ID 1, solar=ID 2). Often only 1 meter needed + read the inverter.
 
+### 2026-06-29 — solar management features (making solar first-class)
+- **Soiling → cleaning-ROI recommender** (`backend/services/solar_cleaning_roi.py` + `test_solar_cleaning_roi.py`,
+  12 tests): turns the solar-health Performance Ratio into a rupee wash decision. `soiling_loss_fraction`
+  (gap below a clean array's PR ~0.95 = the soiling-attributable loss), `daily_kwh_lost` (anchored on the kWh the
+  array ACTUALLY made today, not nameplate), `cleaning_advice` → "clean_now | monitor | clean_not_needed" with
+  ₹/day lost, ₹ accrued since last wash, and payback days. HONEST: it FINDS the loss + RECOMMENDS; it does not
+  "deliver" recovered energy. Solar valued at the NORMAL self-consumption rate (never peak — no overclaim).
+  Endpoint `GET /facilities/{id}/solar/cleaning-roi?cleaning_cost_rs=&days_since_clean=` in `api/v1/alerts.py`
+  (reuses run_solar_health PR + get_solar_generation today_kwh + facility.state_tariff normal rate).
+
 ### Open follow-ups
 - Store PF from the meter (firmware read + a `pf` column) so PF penalty runs on live data.
 - Weekly PDF report (still a stub: `tasks.py:384`, `reports.py`).
