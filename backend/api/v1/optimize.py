@@ -42,6 +42,24 @@ def _solar_forecast_24h(solar_kw: float, hour_now: int) -> list[float]:
     return forecast
 
 
+def _solar_forecast_with_irradiance(facility, hour_now: int) -> list[float]:
+    """Real GHI-driven 24h solar forecast from Open-Meteo; on any failure (no
+    network, empty data) fall back to the clear-sky sine curve so optimize never
+    blocks on the forecast."""
+    from backend.services.solar_forecast import fetch_open_meteo_ghi, forecast_from_series
+    try:
+        ghi, temp = fetch_open_meteo_ghi(
+            facility.lat, facility.lon, hour_now, facility.timezone,
+        )
+        if ghi:
+            fc = forecast_from_series(ghi, temp or [], facility.solar_kw)
+            if any(v > 0 for v in fc):
+                return fc
+    except Exception:
+        pass
+    return _solar_forecast_24h(facility.solar_kw, hour_now)
+
+
 def _tariff_schedule_24h(state_tariff: str, hour_now: int) -> list[float]:
     """Return 24h tariff schedule starting from current hour."""
     tariff = INDIA_TARIFFS.get(state_tariff, INDIA_TARIFFS["West Bengal - CESC"])
@@ -102,7 +120,7 @@ async def run_optimizer(
     # Build solar forecast and tariff schedule
     from datetime import datetime, timezone
     hour_now       = datetime.now(timezone.utc).hour
-    solar_forecast = _solar_forecast_24h(facility.solar_kw, hour_now)
+    solar_forecast = _solar_forecast_with_irradiance(facility, hour_now)
     tariff_schedule= _tariff_schedule_24h(facility.state_tariff, hour_now)
 
     # Current SoC from latest reading
