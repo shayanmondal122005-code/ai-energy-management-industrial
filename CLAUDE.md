@@ -138,6 +138,15 @@ Register every meaningful change here so this file stays the running record.
   self-consumption + storage over spilling when there's an economic reason to store. New fields also surfaced in the
   `GET /facilities/{id}/optimize` response. Existing optimizer tests unaffected (their scenarios are solar-poor → spill=0).
 
+- **Irradiance-based solar forecast** (`backend/services/solar_forecast.py` + `test_solar_forecast.py`, 13 tests):
+  replaces the clear-sky sine curve feeding the optimizer with a forecast driven by REAL predicted GHI from Open-Meteo
+  (`shortwave_radiation` + `temperature_2m`). STC-referenced yield model (no PVLib dep): `T_cell` via NOCT,
+  `P_ac = kWp·(GHI/1000)·(1−system_loss)·[1+γ(T_cell−25)]` clipped to nameplate. Pure conversion funcs unit-tested;
+  `fetch_open_meteo_ghi` isolates the I/O. Wired into `optimize.py` via `_solar_forecast_with_irradiance(facility,...)`
+  using facility.lat/lon/solar_kw/timezone, with graceful FALLBACK to the old sine curve on any failure. Verified live
+  (Kolkata): tracks monsoon cloud dips the sine curve couldn't. HONEST scope: uses horizontal GHI, not a full
+  tilt/azimuth plane-of-array transposition — that (and per-facility tilt/azimuth/system-loss config) is the next refinement.
+
 ### Open follow-ups
 - Store PF from the meter (firmware read + a `pf` column) so PF penalty runs on live data.
 - Weekly PDF report (still a stub: `tasks.py:384`, `reports.py`).
@@ -145,3 +154,7 @@ Register every meaningful change here so this file stays the running record.
 - `source_configs` table (mirror `load_configs`) so SOURCES are per-facility configurable like loads.
 - Rotate the device key committed in `edge/wokwi/prakriti_esp32.ino` before any real pilot.
 - Prune ~9 duplicate Vercel projects; pick one frontend host (Vercel vs Netlify).
+- Per-facility solar config (kWp/tilt/azimuth/system_loss/panel_type) → full plane-of-array transposition in
+  `solar_forecast.py` (currently uses horizontal GHI + defaults). Same table could feed solar_cap into solar_health.
+- Frontend: surface the new solar endpoints — `/solar/cleaning-roi`, `/solar/payback`, and optimizer curtailment/
+  export accounting — on `solar/page.tsx` + `savings/page.tsx` (backends shipped, UI not yet wired).
