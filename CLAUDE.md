@@ -159,7 +159,11 @@ Register every meaningful change here so this file stays the running record.
   Per-string + safety detectors stay dormant until an inverter gateway feeds per-string telemetry.
 - eta_bos defaults to 0.80 (uncalibrated estimate; slope/zero-power detectors don't depend on it,
   absolute-shortfall ones have ≥15% thresholds). TODO: real calibration from history; wire
-  `EmsForecastAdapter` to the in-house forecast; frontend dashboard panel (next PR).
+  `EmsForecastAdapter` to the in-house forecast.
+- **Dashboard panel** (`frontend/app/(dashboard)/solar/page.tsx` + `lib/api.ts` `solarOmDetection`):
+  "Remote O&M Detection" section on the solar page — ₹/day at risk, open findings + suppressed count,
+  sky/cloud-variability, and ₹-quantified / risk-framed alert cards. So all detection output lands in
+  the one EMS dashboard. typecheck + lint clean.
 - Source of truth for the detection logic stays the `solar-om-detection` repo; this is a vendored copy.
 
 ### Open follow-ups
