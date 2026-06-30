@@ -147,6 +147,21 @@ Register every meaningful change here so this file stays the running record.
   (Kolkata): tracks monsoon cloud dips the sine curve couldn't. HONEST scope: uses horizontal GHI, not a full
   tilt/azimuth plane-of-array transposition — that (and per-facility tilt/azimuth/system-loss config) is the next refinement.
 
+### 2026-06-30 — Solar O&M detection integration (merge of the solar-om-detection repo)
+- Vendored the **pure detection core** from the standalone `solar-om-detection` repo into
+  `backend/services/solar_om/` (framework-free by design — models, baseline PR/PR_tcorr engine,
+  environmental gate, 7 detectors + meter/inverter cross-check, satellite/forecast sources, engine,
+  seed). 88 vendored unit tests in `backend/tests/solar_om/` (pure, network-free) — green.
+- `backend/services/solar_om_adapter.py` + `GET /facilities/{id}/solar/om-detection` (in `alerts.py`):
+  runs the detection core on the EMS's PLANT-LEVEL solar readings — attaches modeled irradiance
+  (Open-Meteo, low-latency; NASA POWER lags days so it's for backtests) + forecast SERVER-SIDE, runs
+  detection through the gate, returns ₹-quantified / risk-framed alerts + health for the dashboard.
+  Per-string + safety detectors stay dormant until an inverter gateway feeds per-string telemetry.
+- eta_bos defaults to 0.80 (uncalibrated estimate; slope/zero-power detectors don't depend on it,
+  absolute-shortfall ones have ≥15% thresholds). TODO: real calibration from history; wire
+  `EmsForecastAdapter` to the in-house forecast; frontend dashboard panel (next PR).
+- Source of truth for the detection logic stays the `solar-om-detection` repo; this is a vendored copy.
+
 ### Open follow-ups
 - Store PF from the meter (firmware read + a `pf` column) so PF penalty runs on live data.
 - Weekly PDF report (still a stub: `tasks.py:384`, `reports.py`).

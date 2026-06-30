@@ -118,3 +118,26 @@ async def solar_cleaning_roi(
         "solar_value_per_kwh": solar_value_per_kwh,
         **asdict(advice),
     }
+
+
+@router.get("/{facility_id}/solar/om-detection")
+async def solar_om_detection(
+    facility_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """Remote solar O&M detection: weather-normalized EXPECTED vs ACTUAL generation
+    through the environmental gate. Returns ₹-quantified / risk-framed alerts + health
+    for the dashboard. Modeled irradiance + forecast are attached server-side."""
+    if not current_user.can_access_facility(facility_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    cache_key = f"solar_om:{facility_id}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return cached
+
+    from backend.services.solar_om_adapter import run_om_detection
+    result = await run_om_detection(db, facility_id)
+    await cache_set(cache_key, result, ttl_seconds=300)
+    return result
