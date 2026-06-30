@@ -216,6 +216,35 @@ export const alerts = {
     request<{ status: string; alerts: object[]; performance_ratio: number; checked_at?: string }>(
       `/facilities/${facilityId}/solar/health`
     ),
+  solarOmDetection: (facilityId: string) =>
+    request<OmDetection>(`/facilities/${facilityId}/solar/om-detection`),
+};
+
+// Remote solar O&M detection (weather-normalized expected vs actual).
+export type OmAlert = {
+  type: string;
+  severity: string;
+  inverter_id?: string | null;
+  string_id?: string | null;
+  recommended_action: string;
+  confidence: number;
+  rupee_impact_per_day?: number | null;
+  rupee_accumulated?: number | null;
+  risk_note?: string | null;
+  evidence?: Record<string, unknown>;
+};
+
+export type OmDetection = {
+  facility_id: string;
+  status: string;
+  calibrated?: boolean;
+  expected_source?: string;
+  cloud_variability_index?: number;
+  clear_sky?: boolean;
+  open_alerts: number;
+  total_rupee_impact_per_day: number;
+  suppressed?: number;
+  alerts: OmAlert[];
 };
 
 // ── Grid ─────────────────────────────────────────────────────
