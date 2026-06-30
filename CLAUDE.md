@@ -157,9 +157,12 @@ Register every meaningful change here so this file stays the running record.
   (Open-Meteo, low-latency; NASA POWER lags days so it's for backtests) + forecast SERVER-SIDE, runs
   detection through the gate, returns ₹-quantified / risk-framed alerts + health for the dashboard.
   Per-string + safety detectors stay dormant until an inverter gateway feeds per-string telemetry.
-- eta_bos defaults to 0.80 (uncalibrated estimate; slope/zero-power detectors don't depend on it,
-  absolute-shortfall ones have ≥15% thresholds). TODO: real calibration from history; wire
-  `EmsForecastAdapter` to the in-house forecast.
+- **Calibration from history** (`solar_om/history.calibrate_from_hourly` + adapter `_calibration`):
+  fits `eta_bos` + `baseline_pr` from the facility's OWN clean clear-sky history (21-day hourly solar
+  vs modeled POA), cached 24h. Falls back to the 0.80 default until enough clear days accumulate; the
+  dashboard's "uncalibrated estimate" chip clears once it's fit. Response now carries `eta_bos`/
+  `baseline_pr`. (Slope/zero-power detectors never needed it; absolute-shortfall ones use ≥15%.)
+  TODO: wire `EmsForecastAdapter` to the in-house forecast.
 - **Dashboard panel** (`frontend/app/(dashboard)/solar/page.tsx` + `lib/api.ts` `solarOmDetection`):
   "Remote O&M Detection" section on the solar page — ₹/day at risk, open findings + suppressed count,
   sky/cloud-variability, and ₹-quantified / risk-framed alert cards. So all detection output lands in

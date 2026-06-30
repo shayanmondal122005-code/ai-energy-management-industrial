@@ -16,9 +16,13 @@ All pure functions — the EMS supplies the history arrays; no coupling to its s
 """
 from __future__ import annotations
 
+from collections import defaultdict
+
 import numpy as np
 
-from backend.services.solar_om.baseline import calibrate_eta_bos
+from backend.services.solar_om.baseline import calibrate_eta_bos, expected_power_w, performance_ratio
+from backend.services.solar_om.forecast import derive_variability
+from backend.services.solar_om.irradiance import clearsky_ghi
 from backend.services.solar_om.models import Plant
 
 
@@ -53,6 +57,48 @@ def calibrate_eta_bos_from_history(
     if len(a) < min_days:
         return None
     return calibrate_eta_bos(plant, a, i)
+
+
+def compute_daily_calibration(plant: Plant, hourly_rows, env_source, *, clearsky_fn=clearsky_ghi):
+    """Roll an hourly solar history into per-day calibration inputs.
+
+    `hourly_rows` is any sequence of objects with `.hr` (timestamp) and `.solar_kw`
+    (the hour's average AC kW) — e.g. the EMS readings_hourly rollup. For each day it
+    returns aligned lists: (actual_kWh, ideal_kWh at eta=1 from modeled POA, PR_tcorr,
+    clear_sky_flag). Pure — the env + clear-sky are injected, so it unit-tests.
+    """
+    by_day: dict = defaultdict(list)
+    for r in hourly_rows:
+        ts = r.hr
+        by_day[ts.date()].append((ts, float(getattr(r, "solar_kw", 0.0) or 0.0)))
+
+    actual_kwh, ideal_kwh, pr_tcorr, clear = [], [], [], []
+    for _day, hours in sorted(by_day.items()):
+        envs = [env_source.get(plant, ts) for ts, _ in hours]
+        a_kwh = sum(kw for _, kw in hours)                                  # hourly kW ≈ kWh
+        i_kwh = sum(expected_power_w(plant, e, eta_bos=1.0) for e in envs) / 1000.0
+        pr = performance_ratio(plant, a_kwh, envs, 1.0)
+        clearness = []
+        for (ts, _), e in zip(hours, envs):
+            cs = clearsky_fn(ts, plant.lat, plant.lon)
+            if cs > 50.0:
+                clearness.append(max(0.0, e.ghi_wm2) / cs)
+        _, is_clear = derive_variability(clearness)
+        actual_kwh.append(a_kwh)
+        ideal_kwh.append(i_kwh)
+        pr_tcorr.append(pr.pr_tcorr)
+        clear.append(is_clear)
+    return actual_kwh, ideal_kwh, pr_tcorr, clear
+
+
+def calibrate_from_hourly(plant: Plant, hourly_rows, env_source, *, min_days: int = 10,
+                          clearsky_fn=clearsky_ghi) -> tuple[float | None, float | None]:
+    """End-to-end: hourly history → (eta_bos, baseline_pr) over clean clear-sky days.
+    Returns (None, None) until there are enough clear days to trust."""
+    a, i, p, c = compute_daily_calibration(plant, hourly_rows, env_source, clearsky_fn=clearsky_fn)
+    eta = calibrate_eta_bos_from_history(plant, a, i, c, min_days=min_days)
+    base = site_baseline_pr(p, c, min_days=min_days)
+    return eta, base
 
 
 def baseline_deviation(today_pr_tcorr: float, baseline_pr: float) -> float:

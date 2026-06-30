@@ -4,6 +4,7 @@ import math
 from backend.services.solar_om.history import (
     baseline_deviation,
     calibrate_eta_bos_from_history,
+    calibrate_from_hourly,
     corroborated_loss,
     site_baseline_pr,
 )
@@ -60,3 +61,43 @@ class TestDeviationAndBlend:
     def test_corroborated_disagreement_conservative(self):
         loss, conf = corroborated_loss(0.20, 0.02)   # baselines disagree
         assert conf < 0.7 and loss == 0.02            # take the smaller, low confidence
+
+
+class TestCalibrateFromHourly:
+    def test_recovers_eta_from_clean_history(self):
+        import math
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        from backend.services.solar_om.baseline import expected_power_w
+        from backend.services.solar_om.environment import MockEnvironment
+
+        plant = Plant(id="P", name="t", lat=22.57, lon=88.36, tilt_deg=22, azimuth_deg=180,
+                      rated_capacity_kwp=100.0, module_temp_coeff=-0.0035, noct_c=45.0)
+        env = MockEnvironment()  # clear-sky, no clouds → ghi == clear_sky_ghi
+        # 12 clean clear-sky days where the array produces 82% of the eta=1 ideal.
+        rows = []
+        for d in range(12):
+            for h in range(7, 18):
+                ts = datetime(2024, 3, 1, h, tzinfo=timezone.utc).replace(day=1 + d)
+                e = env.get(plant, ts)
+                ideal_kw = expected_power_w(plant, e, eta_bos=1.0) / 1000.0
+                rows.append(SimpleNamespace(hr=ts, solar_kw=0.82 * ideal_kw))
+
+        # Inject a clear-sky fn matching the mock so clearness ≈ 1 → days count as clear.
+        eta, base = calibrate_from_hourly(
+            plant, rows, env, clearsky_fn=lambda ts, lat, lon: env.clear_sky_ghi(ts))
+        assert eta is not None and math.isclose(eta, 0.82, abs_tol=0.02)
+        assert base is not None
+
+    def test_none_without_enough_days(self):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        from backend.services.solar_om.environment import MockEnvironment
+        plant = Plant(id="P", name="t", lat=22.57, lon=88.36, tilt_deg=22, azimuth_deg=180,
+                      rated_capacity_kwp=100.0)
+        env = MockEnvironment()
+        rows = [SimpleNamespace(hr=datetime(2024, 3, 1, 12, tzinfo=timezone.utc), solar_kw=50.0)]
+        eta, base = calibrate_from_hourly(plant, rows, env)
+        assert eta is None and base is None

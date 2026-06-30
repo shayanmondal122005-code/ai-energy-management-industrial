@@ -17,6 +17,7 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.core.cache import cache_get, cache_set
 from backend.repositories.facilities_repo import FacilitiesRepository
 from backend.repositories.readings_repo import ReadingsRepository
 from backend.services.alert_service import INDIA_TARIFFS
@@ -27,6 +28,7 @@ from backend.services.solar_om.environment import (
     SatelliteSource,
 )
 from backend.services.solar_om.forecast import OpenMeteoForecast
+from backend.services.solar_om.history import calibrate_from_hourly
 from backend.services.solar_om.models import Inverter, Plant, Reading
 from backend.services.solar_om.tariff import Tariff
 
@@ -54,6 +56,27 @@ def _serialize(alert: dict) -> dict:
     return out
 
 
+async def _calibration(db: AsyncSession, facility_id: UUID, plant_template: Plant,
+                       env: SatelliteSource) -> tuple[float, float | None, bool]:
+    """eta_bos + baseline_pr fit from the facility's OWN clean clear-sky history (cached
+    24h — the 3-week fit is too heavy to recompute per request). Falls back to the
+    uncalibrated default until enough clear days have accumulated."""
+    key = f"solar_om_cal:{facility_id}"
+    cached = await cache_get(key)
+    if cached:
+        return cached.get("eta", DEFAULT_ETA_BOS), cached.get("baseline_pr"), bool(cached.get("calibrated"))
+    try:
+        hourly = await ReadingsRepository(db).get_hourly_for_shadow(facility_id, days=21)
+        eta, base = calibrate_from_hourly(plant_template, hourly, env, min_days=10)
+        if eta:
+            await cache_set(key, {"eta": eta, "baseline_pr": base, "calibrated": True},
+                            ttl_seconds=86400)
+            return eta, base, True
+    except Exception:
+        pass
+    return DEFAULT_ETA_BOS, None, False
+
+
 async def run_om_detection(db: AsyncSession, facility_id: UUID, *, hours: int = 48) -> dict:
     """Run remote O&M detection for a facility and return a dashboard-ready payload."""
     fac = await FacilitiesRepository(db).get(facility_id)
@@ -66,17 +89,23 @@ async def run_om_detection(db: AsyncSession, facility_id: UUID, *, hours: int = 
         return {"facility_id": str(facility_id), "status": "insufficient_data",
                 "open_alerts": 0, "total_rupee_impact_per_day": 0.0, "alerts": []}
 
+    # past_days covers both the 3-week calibration fit and recent detection in one fetch.
+    env = SatelliteSource(OpenMeteoSatelliteProvider(past_days=30))
+    plant_template = Plant(
+        id=str(facility_id), name=fac.name, lat=fac.lat, lon=fac.lon,
+        tilt_deg=abs(fac.lat), azimuth_deg=180.0, rated_capacity_kwp=float(fac.solar_kw))
+    eta_bos, baseline_pr, calibrated = await _calibration(db, facility_id, plant_template, env)
+
     plant = Plant(
         id=str(facility_id), name=fac.name, lat=fac.lat, lon=fac.lon,
         tilt_deg=abs(fac.lat), azimuth_deg=180.0,           # tilt≈latitude, due south
-        rated_capacity_kwp=float(fac.solar_kw), eta_bos=DEFAULT_ETA_BOS)
+        rated_capacity_kwp=float(fac.solar_kw), eta_bos=eta_bos, baseline_pr=baseline_pr)
     inverters = [Inverter(id="PLANT", plant_id=plant.id, rated_kw=float(fac.solar_kw),
                           modbus_slave_id=1)]
     intervals = [[Reading(ts=r.timestamp, inverter_id="PLANT", string_id=None,
                           ac_power_w=float(r.solar_kw) * 1000.0)] for r in rows]
     timestamps = [r.timestamp for r in rows]
 
-    env = SatelliteSource(OpenMeteoSatelliteProvider())     # low-latency modeled POA
     forecast = OpenMeteoForecast().get(plant, timestamps[0], 24)
     tcfg = INDIA_TARIFFS.get(fac.state_tariff, INDIA_TARIFFS["West Bengal - CESC"])
     tariff = Tariff.flat(float(tcfg["normal"]))
@@ -93,7 +122,9 @@ async def run_om_detection(db: AsyncSession, facility_id: UUID, *, hours: int = 
     return {
         "facility_id": str(facility_id),
         "status": "ok",
-        "calibrated": False,                # uncalibrated estimate (eta_bos default)
+        "calibrated": calibrated,           # fit from the site's own clean-day history
+        "eta_bos": round(eta_bos, 3),
+        "baseline_pr": round(baseline_pr, 3) if baseline_pr is not None else None,
         "expected_source": "open-meteo satellite POA → pvlib",
         "cloud_variability_index": forecast.cloud_variability_index,
         "clear_sky": forecast.clear_sky_flag,
